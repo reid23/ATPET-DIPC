@@ -85,27 +85,28 @@ x,   th1,   th2   = sp.symbols('x, \\theta_1, \\theta_2')
 dx,  dth1,  dth2  = sp.symbols('\dot{x}, \dot{\\theta_1}, \dot{\\theta_2}')
 
 #* print out LaTeX for equations of motion
-# print("""
-# \\begin{bmatrix}
-# \dot x \\
-# \ddot x \\
-# \dot \\theta_1 \\
-# \ddot \\theta_1 \\
-# \dot \\theta_2 \\
-# \ddot \\theta_2
-# \end{bmatrix} = 
-# """ + sp.latex(ydot.subs([
-#     (y[0].diff(t), dx),
-#     (y[1].diff(t), dth1),
-#     (y[2].diff(t), dth2),
-    
-#     (y[0], x),
-#     (y[1], th1),
-#     (y[2], th2),
-#     (y[3], dx),
-#     (y[4], dth1),
-#     (y[5], dth2),
-# ])))
+def print_eoms():
+    print("""
+    \\begin{bmatrix}
+    \dot x \\
+    \ddot x \\
+    \dot \\theta_1 \\
+    \ddot \\theta_1 \\
+    \dot \\theta_2 \\
+    \ddot \\theta_2
+    \end{bmatrix} = 
+    """ + sp.latex(ydot.subs([
+        (y[0].diff(t), dx),
+        (y[1].diff(t), dth1),
+        (y[2].diff(t), dth2),
+        
+        (y[0], x),
+        (y[1], th1),
+        (y[2], th2),
+        (y[3], dx),
+        (y[4], dth1),
+        (y[5], dth2),
+    ])))
 #%%
 # A, B = method.method.to_linearizer().linearize(A_and_B=True)
 # A_func = sp.lambdify([y, l, lcom, c, g, ma, mb, mc, IBzz], A)
@@ -120,20 +121,24 @@ op_point=dict(zip(
 A, B = method.method.to_linearizer().linearize(A_and_B=True, op_point=op_point)
 #%%
 A, B = np.array(A).astype(np.float64), np.array(B).astype(np.float64)
-print(np.linalg.matrix_rank(ct.ctrb(A, B))) #this should be 6 since we have 6 degrees of freedom
+print(np.linalg.matrix_rank(ct.ctrb(A, B))==6) #this should be 6 since we have 6 degrees of freedom
 
 eigs = np.array([
-    [-2.50], 
-    [-2.51],
-    [-2.52],
-    [-2.53],
-    [-2.54],
-    [-2.55],
+    [-3.50], 
+    [-3.51],
+    [-3.52],
+    [-3.53],
+    [-3.54],
+    [-3.55],
 ])
 
 #construct proportional controller through pole placement
 # aka place eigenvalues of A+B@(-K)
 K = ct.place(A, B, eigs)
+
+# hah trolll we're doing an LQR now bcs pole placement was terrible
+# it only worked for some very small variations in starting position
+# this is much better
 Q, R = np.zeros((6,6)), np.zeros((1,1))
 np.fill_diagonal(Q, [100, 10, 5, 1, 100, 50])
 np.fill_diagonal(R, [10])
@@ -153,11 +158,11 @@ func = sp.lambdify([y, F, l, lcom, c, g, ma, mb, mc, IBzz], ydot)
 #     return lambda x: func(x0, 0, *constants) + j_func(x0, 0, *constants)@(x-x0)
 #%%
 target = np.array([0, np.pi, 0, 0, 0, 0])
-k = K[0]
 def func_for_scipy(t, x):
     return func(x, (-K2@(x-target))[0], *constants).flatten()
 
-soln = solve_ivp(func_for_scipy, (0, 5), [0, (7/8)*np.pi, 0, 0, 0, 0], t_eval = np.arange(0, 5, 1/60))
+soln = solve_ivp(func_for_scipy, (0, 4.5), [0, (7/8)*np.pi, 0, 0, 0, 0], t_eval = np.arange(0, 4.5, 1/60))
+
 plt.plot(soln.t, soln.y[0], label='$x$ (m)')
 plt.plot(soln.t, soln.y[3], label='$\dot{x}$ (m/s)')
 plt.plot(soln.t, soln.y[1], label='$\\theta_1$ (rad)')
@@ -177,8 +182,10 @@ num_frames = len(soln.y[0])
 def animate(i):
     mat.set_data(get_xy(*soln.y[0:3, i%(num_frames+30)-30 if i%(num_frames+30) > 29 else 0], constants[0]))
     return mat
-ax.axis([-1,1,-0.25,0.75])
-ani = animation.FuncAnimation(fig, animate, interval=50)
+ax.axis([-0.1,2,-0.25,0.75])
+anim = animation.FuncAnimation(fig, animate, interval=50/3, frames=num_frames+30)
+writervideo = animation.FFMpegWriter(fps=60)
+anim.save('media/LQR_works.mp4', writer=writervideo)
 plt.show()
 # %%
 # def func_for_path_finding(x, y, p):
