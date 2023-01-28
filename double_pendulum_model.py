@@ -107,7 +107,7 @@ class dipc_model:
         self.A, self.B = np.array(self.A).astype(np.float64), np.array(self.B).astype(np.float64)
         return self
     def lambdify(self):
-        self.func = sp.lambdify([self.y, self.F, self.lb, self.lc, self.lcom, self.c, self.g, self.ma, self.mb, self.mc, self.IBzz, self.ICzz], self.ydot)
+        self.func = sp.lambdify([self.y, self.F, self.lb, self.lc, self.lcom, self.c, self.g, self.ma, self.mb, self.mc, self.IBzz, self.ICzz], self.ydot, 'numpy')
         return self
     def construct_PP(self, eigs):
         self.K['PP'] = ct.place(self.A, self.B, eigs)
@@ -134,13 +134,16 @@ class dipc_model:
             lag_buffer.append(x)
             for counter, i in enumerate(target_timestamps[1:]):
                 if t<i:
-                    forces.append((-ctrl@(lag_buffer.pop(0)-targets[counter]))[0])
+                    forces.append([t, (-ctrl@(lag_buffer.pop(0)-targets[counter]))[0]])
                     break
-            if i>target_timestamps[-1]: forces.append(self.func(x, 0, *self.constants).flatten()) # stop control.
-            return self.func(x, forces[-1], *self.constants).flatten()
+            if i>target_timestamps[-1]: 
+                forces.append([t, 0]) # stop control.
+                lag_buffer.pop(0)
+            return self.func(x, forces[-1][1], *self.constants).flatten()
 
         soln = solve_ivp(func_for_scipy, (0, tspan), y_0, t_eval = np.arange(0, tspan, 1/framerate))
-        self.soln_t, self.soln_y, self.soln_forces = soln.t, soln.y, forces
+        forces.sort(key = lambda x: x[0])
+        self.soln_t, self.soln_y, self.soln_forces = soln.t, soln.y, np.array(forces)
         return self
     def plot_graph(self):
         plt.plot(self.soln_t, self.soln_y[0], label='$x$ (m)')
@@ -149,7 +152,7 @@ class dipc_model:
         plt.plot(self.soln_t, self.soln_y[4], label='$\dot\\theta_1$ (rad/s)')
         plt.plot(self.soln_t, self.soln_y[2], label='$\\theta_2$ (rad)')
         plt.plot(self.soln_t, self.soln_y[5], label='$\dot\\theta_2$ (rad/s)')
-        # plt.plot(self.soln_t, self.soln_forces, label='$u$ (N)')
+        plt.plot(self.soln_forces[:, 0], self.soln_forces[:, 1], label='$u$ (N)')
         plt.xlabel('Time (s)')
         plt.legend()
     def plot_animation(self, colors, times):
@@ -158,7 +161,6 @@ class dipc_model:
         mat, = ax.plot(*self.get_xy(*self.soln_y[0:3, 0], self.constants[0], self.constants[1]), marker='o')
         num_frames = len(self.soln_y[0])
         def animate(i):
-            print('here')
             mat.set_data(self.get_xy(*self.soln_y[0:3, i%(num_frames+30)-30 if i%(num_frames+30) > 29 else 0], self.constants[0], self.constants[1]))
             for counter, t in enumerate(times[1:]):
                 if t*60 - 10 < i < t*60 + 10:
@@ -182,6 +184,7 @@ class dipc_model:
         pend_2 = pend_1 + dipc_model.rot(th1+th2)@np.array([[0], [-l2]])
         return np.concatenate([cart, pend_1, pend_2], axis=1)   
     def print_eoms(self):
+        dx, dth1, dth2, x, th1, th2 = dynamicsymbols('\dot{x}, \dot\\theta_1, \dot\\theta_2, x, \\theta_1, \\theta_2')
         print("""
         \\begin{bmatrix}
         \dot x \\
@@ -192,30 +195,33 @@ class dipc_model:
         \ddot \\theta_2
         \end{bmatrix} = 
         """ + sp.latex(self.ydot.subs([
-            (self.y[0].diff(self.t), self.dx),
-            (self.y[1].diff(self.t), self.dth1),
-            (self.y[2].diff(self.t), self.dth2),
+            (self.y[0].diff(self.t), dx),
+            (self.y[1].diff(self.t), dth1),
+            (self.y[2].diff(self.t), dth2),
             
-            (self.y[0], self.x),
-            (self.y[1], self.th1),
-            (self.y[2], self.th2),
-            (self.y[3], self.dx),
-            (self.y[4], self.dth1),
-            (self.y[5], self.dth2),
+            (self.y[0], x),
+            (self.y[1], th1),
+            (self.y[2], th2),
+            (self.y[3], dx),
+            (self.y[4], dth1),
+            (self.y[5], dth2),
         ])))
 #%%
-eigs = np.array([
-    [-3.50], 
-    [-3.51],
-    [-3.52],
-    [-3.53],
-    [-3.54],
-    [-3.55],
-])
+if __name__ == '__main__':
+    eigs = np.array([
+        [-3.50], 
+        [-3.51],
+        [-3.52],
+        [-3.53],
+        [-3.54],
+        [-3.55],
+    ])
 
-Q = np.diag([100, 10, 5, 1, 100, 50])
-R = np.diag([10])
-model = dipc_model().linearize().lambdify().construct_PP(eigs).construct_LQR(Q, R).integrate_with_scipy()
-model.plot_graph()
-model.plot_animation(['tab:blue', 'tab:orange', 'tab:blue'], [0, 5, 10])
-model.show_plots()
+    Q = np.diag([100, 10, 5, 1, 100, 50])
+    R = np.diag([10])
+    model = dipc_model().linearize().lambdify().construct_PP(eigs).construct_LQR(Q, R).integrate_with_scipy()
+    # model.print_eoms()
+    #%%
+    model.plot_graph()
+    model.plot_animation(['tab:blue', 'tab:orange', 'tab:blue'], [0, 5, 10])
+    model.show_plots()
