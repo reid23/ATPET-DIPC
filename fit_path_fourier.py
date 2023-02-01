@@ -27,24 +27,43 @@ t_eval = np.arange(0, tspan[1], 1/framerate)
 
 @njit
 def eval_fourier(t, weights):
-    return np.array([1]+[cos(n*t) for n in range(1, 50)]+[sin(n*t) for n in range(1, 50)])@weights
+    # print(t, weights)
+    return weights[0]+sum([cos(n*t)*weights[n] for n in range(1, 50)])+sum([sin(n*t)*weights[n+49] for n in range(1, 50)])
 
-@njit
+eval_fourier = np.vectorize(eval_fourier, excluded=['weights'], signature='(),(99)->()')
+
+
+# @njit
 def impulse_cost(times, weights):
-    return sum([(eval_fourier(t, weights)**2)*R/framerate for t in times])
+    return sum((eval_fourier(times, weights)**2)*R/framerate)
 
 @njit
+def times_q(state):
+    return (state.T@Q@state)/framerate
+
+times_q = np.vectorize(times_q, signature='(6)->()')
+
+# @njit
 def cost(times, y_states, weights):
-    state_cost = 0
-    for state in (y_states-target): 
-        state_cost += (state.T@Q@state)/framerate
-    return sum([(eval_fourier(t, weights)**2)*R/framerate for t in times])+state_cost
+    # state_cost = 0
+    # for state in (y_states-target): 
+    #     state_cost += (state.T@Q@state)/framerate
+    return sum((eval_fourier(times, weights)**2)*R/framerate)+sum(times_q(y_states-target))
 
 
 def calc_cost(weights):
     soln = solve_ivp(lambda t, x: model.func(x, eval_fourier(t, weights), *model.constants).flatten(), tspan, y_0, t_eval=t_eval)
-    print('1')
-    return cost(soln.t, soln.y.T, weights)
+    c = sum((eval_fourier(soln.t, weights)**2)*R/framerate)+sum(times_q(soln.y.T-target))
+    print(f'cost: {c}', np.round(weights[:10], 3))
+    return c
 # %%
-print(minimize(calc_cost, np.ones(99)), file=open('optimization_result.txt', 'w'))
+initial_weights = np.zeros(99)
+initial_weights[1] = 1
+
+print(len(model.constants))
+
+initial_weights = ((np.random.random((1000, 99))*2)-1)*6
+initial_weights = min(initial_weights, key=calc_cost)
+print('initial weights found!')
+print(minimize(calc_cost, initial_weights, options={'disp':True}), file=open('optimization_result.txt', 'w'))
 # %%

@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import control as ct
 import matplotlib.animation as animation
-
+from numba import njit
 #             ----> x
 # ___________III______
 #             \   |
@@ -35,7 +35,30 @@ import matplotlib.animation as animation
 
 # func = sp.lambdify([y, F, lb, lc, lcom, c, g, ma, mb, mc, IBzz, ICzz], ydot)
 #%%
+@njit
+def eval_fourier(t, weights):
+    return np.array([1]+[np.cos(n*t) for n in range(1, 50)]+[np.sin(n*t) for n in range(1, 50)])@weights
 class dipc_model:
+    fourier_weights = np.array([-0.02746387,  0.06056048, -0.0152137 , -0.00835731,  0.02295472,
+       -0.02067941,  0.02143318, -0.02520857,  0.01227415, -0.01911009,
+        0.01547981, -0.01285967,  0.00903772, -0.00940263, -0.00325106,
+       -0.02501887,  0.0072948 , -0.0017528 , -0.01187101, -0.0148667 ,
+       -0.00704365, -0.00083559, -0.01336881, -0.00547816, -0.0183023 ,
+       -0.00148511, -0.01378657,  0.00649858, -0.01326133,  0.00876274,
+       -0.01194149,  0.0125613 , -0.00860291,  0.0127156 , -0.00883848,
+        0.01041753, -0.00925676,  0.01125637, -0.01001454,  0.00982196,
+       -0.00912923,  0.00954867, -0.00878214,  0.00820938, -0.00243302,
+        0.02580509,  0.00302203,  0.02594858,  0.00895326, -0.00623051,
+       -0.01972074,  0.04646642, -0.04754254,  0.01770243, -0.01908798,
+       -0.00283597, -0.00794108, -0.00580271,  0.00613053, -0.00879114,
+        0.00470382, -0.01579849,  0.00431799, -0.02709932,  0.01884706,
+       -0.00578037,  0.00408604, -0.02246077,  0.01686083, -0.00644435,
+        0.01156662, -0.01195275,  0.01208473, -0.00310802,  0.01735018,
+        0.00422928,  0.0134133 ,  0.00454869,  0.0119711 ,  0.00728   ,
+        0.00987926,  0.00708551,  0.00416531,  0.00624717,  0.00235036,
+        0.00874717, -0.00024314,  0.0069472 , -0.00052593,  0.01014447,
+        0.00288896,  0.01003593,  0.00507691,  0.01853719,  0.00639338,
+        0.00337821,  0.00552557, -0.02184791, -0.00934973])
     def __init__(self, constants=[0.3, 0.2,   0.5,   1, 9.81, 0.25, 0.125, 0.125, 0.00065, 0.00065]):
         self.K = {}
         self.constants = constants
@@ -128,17 +151,20 @@ class dipc_model:
 
         lag_buffer = [y_0]*int(framerate*lag_seconds)
         forces = []
-        ctrl = self.K[controller]
+        if controller == 'FF':
+            ctrl = lambda t, e: eval_fourier(t, dipc_model.fourier_weights)
+        else:
+            ctrl = lambda t, e: (-self.K[controller]@e)[0]
 
         def func_for_scipy(t, x):
             lag_buffer.append(x)
             for counter, i in enumerate(target_timestamps[1:]):
                 if t<i:
-                    forces.append([t, (-ctrl@(lag_buffer.pop(0)-targets[counter]))[0]])
+                    forces.append([t, ctrl(t, lag_buffer.pop(0)-targets[counter])])
                     break
-            if i>target_timestamps[-1]: 
-                forces.append([t, 0]) # stop control.
-                lag_buffer.pop(0)
+                if i>target_timestamps[-1]: 
+                    forces.append([t, 0]) # stop control.
+                    lag_buffer.pop(0)
             return self.func(x, forces[-1][1], *self.constants).flatten()
 
         soln = solve_ivp(func_for_scipy, (0, tspan), y_0, t_eval = np.arange(0, tspan, 1/framerate))
@@ -219,7 +245,7 @@ if __name__ == '__main__':
 
     Q = np.diag([100, 10, 5, 1, 100, 50])
     R = np.diag([10])
-    model = dipc_model().linearize().lambdify().construct_PP(eigs).construct_LQR(Q, R).integrate_with_scipy()
+    model = dipc_model().linearize().lambdify().construct_PP(eigs).construct_LQR(Q, R).integrate_with_scipy(y_0 = [0,0,0,0,0,0], targets = np.array([[  0, np.pi, 0, 0, 0, 0]]), target_timestamps = [0, 3], controller = 'FF')
     # model.print_eoms()
     #%%
     model.plot_graph()
