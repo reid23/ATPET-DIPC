@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import control as ct
 import matplotlib.animation as animation
-from numba import njit
+# from numba import njit
 #             ----> x
 # ___________III______
 #             \   |
@@ -35,45 +35,26 @@ from numba import njit
 
 # func = sp.lambdify([y, F, lb, lc, lcom, c, g, ma, mb, mc, IBzz, ICzz], ydot)
 #%%
-@njit
+# @njit
 def eval_fourier(t, weights):
     return np.array([1]+[np.cos(n*t) for n in range(1, 50)]+[np.sin(n*t) for n in range(1, 50)])@weights
 class dipc_model:
-    fourier_weights = np.array([-0.02746387,  0.06056048, -0.0152137 , -0.00835731,  0.02295472,
-       -0.02067941,  0.02143318, -0.02520857,  0.01227415, -0.01911009,
-        0.01547981, -0.01285967,  0.00903772, -0.00940263, -0.00325106,
-       -0.02501887,  0.0072948 , -0.0017528 , -0.01187101, -0.0148667 ,
-       -0.00704365, -0.00083559, -0.01336881, -0.00547816, -0.0183023 ,
-       -0.00148511, -0.01378657,  0.00649858, -0.01326133,  0.00876274,
-       -0.01194149,  0.0125613 , -0.00860291,  0.0127156 , -0.00883848,
-        0.01041753, -0.00925676,  0.01125637, -0.01001454,  0.00982196,
-       -0.00912923,  0.00954867, -0.00878214,  0.00820938, -0.00243302,
-        0.02580509,  0.00302203,  0.02594858,  0.00895326, -0.00623051,
-       -0.01972074,  0.04646642, -0.04754254,  0.01770243, -0.01908798,
-       -0.00283597, -0.00794108, -0.00580271,  0.00613053, -0.00879114,
-        0.00470382, -0.01579849,  0.00431799, -0.02709932,  0.01884706,
-       -0.00578037,  0.00408604, -0.02246077,  0.01686083, -0.00644435,
-        0.01156662, -0.01195275,  0.01208473, -0.00310802,  0.01735018,
-        0.00422928,  0.0134133 ,  0.00454869,  0.0119711 ,  0.00728   ,
-        0.00987926,  0.00708551,  0.00416531,  0.00624717,  0.00235036,
-        0.00874717, -0.00024314,  0.0069472 , -0.00052593,  0.01014447,
-        0.00288896,  0.01003593,  0.00507691,  0.01853719,  0.00639338,
-        0.00337821,  0.00552557, -0.02184791, -0.00934973])
-    def __init__(self, constants=[0.3, 0.2,   0.5,   1, 9.81, 0.25, 0.125, 0.125, 0.00065, 0.00065]):
+       #                                                            0.084            0.0007621
+                               # [lb,  c,              g,   ma,    mb,    IBzz] c=23.08014302
+    def __init__(self, constants=[0.3, 40.0645    , 9.80, 0.25, 0.125, 0.00065]):
         self.K = {}
         self.constants = constants
-        self.y = dynamicsymbols('y:6')
-        # y1, y4 is cart pos, vel
-        # y2, y5 is cart's pivot joint pos, vel
-        # y3, y6 is mid-pendulum joint
-        self.lb, self.lc, self.lcom, self.c, self.g, self.t= symbols('l_b, l_c, l_{com}, c, g, t')
+        self.y = dynamicsymbols('y:4')
+        # y1, y3 is cart pos, vel
+        # y2, y4 is pend ang, vel
+        self.lb, self.c, self.g, self.t = symbols('l_b, c, g, t')
         # l is first pend length
         # lcom is pos of COM from cart pivot joint of first pend (fraction of L)
         # c is friction of cart
         # g is gravity (positive)
         # t is time
 
-        self.ma, self.mb, self.mc, self.IBzz, self.ICzz= symbols('m_a, m_b, m_c, I_{Bzz}, I_{Czz}')
+        self.ma, self.mb, self.IBzz = symbols('m_a, m_b, I_{Bzz}')
         # ma is mass of cart
         # mb is mass of first pendulum
         # mc is mass of end pendulum
@@ -83,54 +64,44 @@ class dipc_model:
         self.track = Body('N')
         self.cart = Body('C', mass=self.ma)
         self.IB = inertia(self.cart.frame, 0, 0, self.IBzz)
-        self.IC = inertia(self.cart.frame, 0, 0, self.ICzz)
         self.top_pend = Body('P_1', mass=self.mb, central_inertia=self.IB)
-        self.end_pend = Body('P_2', mass=self.mc, central_inertia=self.IC)
 
-        self.slider = PrismaticJoint('slider', self.track, self.cart, coordinates=self.y[0], speeds=self.y[3])
-        self.rev1 = PinJoint('r1', self.cart, self.top_pend, coordinates=self.y[1], speeds=self.y[4],
-                        child_axis=self.top_pend.z, child_joint_pos=self.lb*self.lcom*self.top_pend.y,
+        self.slider = PrismaticJoint('slider', self.track, self.cart, coordinates=self.y[0], speeds=self.y[2])
+        self.rev1 = PinJoint('r1', self.cart, self.top_pend, coordinates=self.y[1], speeds=self.y[3],
+                        child_axis=self.top_pend.z, child_joint_pos=self.lb*self.top_pend.y,
                         parent_axis=self.cart.z)
 
-        self.rev2 = PinJoint('r2', self.top_pend, self.end_pend, coordinates=self.y[2], speeds=self.y[5],
-                        child_axis=self.end_pend.z, parent_joint_pos=-self.lb*(1-self.lcom)*self.top_pend.y,
-                        parent_axis=self.top_pend.z, child_joint_pos=self.lc*self.end_pend.y)
-
-        self.joints = (self.slider, self.rev1, self.rev2)
-        self.bodies = (self.track, self.cart, self.top_pend, self.end_pend)
+        self.joints = (self.slider, self.rev1)
+        self.bodies = (self.track, self.cart, self.top_pend)
 
         self.F = dynamicsymbols('F')
         self.cart.apply_force(self.F*self.cart.x) # motor
-        self.cart.apply_force(-self.c*self.y[3]*self.cart.x, reaction_body=self.track) # friction
+        self.cart.apply_force(-self.c*(self.y[2])*self.cart.x, reaction_body=self.track) # friction
 
         # gravity
         self.cart.apply_force(-self.track.y*self.cart.mass*self.g)
         self.top_pend.apply_force(-self.track.y*self.top_pend.mass*self.g)
-        self.end_pend.apply_force(-self.track.y*self.end_pend.mass*self.g)
 
         # get equations of motion
-        self.method = JointsMethod(self.track, self.slider, self.rev1, self.rev2)
+        self.method = JointsMethod(self.track, self.slider, self.rev1)
         self.method.form_eoms()
         self.ydot = self.method.rhs()
-    def linearize(self, op_point=[0,sp.pi,0,0,0,0]):
+    def linearize(self, op_point=[0,sp.pi,0,0]):
         op_point=dict(zip(
             self.y+[self.F,
                self.lb,
-               self.lc,
-               self.lcom,
                self.c,
                self.g,
                self.ma,
                self.mb,
-               self.mc,
-               self.IBzz,
-               self.ICzz], 
+               self.IBzz], 
             op_point+[0]+self.constants))
         self.A, self.B = self.method.method.to_linearizer().linearize(A_and_B=True, op_point=op_point)
         self.A, self.B = np.array(self.A).astype(np.float64), np.array(self.B).astype(np.float64)
         return self
     def lambdify(self):
-        self.func = sp.lambdify([self.y, self.F, self.lb, self.lc, self.lcom, self.c, self.g, self.ma, self.mb, self.mc, self.IBzz, self.ICzz], self.ydot, 'numpy')
+        self.func = sp.lambdify([self.y, self.F, self.lb, self.c, self.g, self.ma, self.mb, self.IBzz], self.ydot, 'numpy')
+        # self.func = sp.lambdify([self.y, self.F, self.lb, self.lc, self.lcom, self.c, self.g, self.ma, self.mb, self.mc, self.IBzz, self.ICzz], self.ydot, 'numpy')
         return self
     def construct_PP(self, eigs):
         self.K['PP'] = ct.place(self.A, self.B, eigs)
@@ -140,9 +111,9 @@ class dipc_model:
         return self
     def get_eigs(self, controller):
         return np.linalg.eig(self.A - self.B@self.K[controller])
-    def integrate_with_scipy(self, y_0 = [0, (7/8)*np.pi, 0, 0, 0, 0], 
-                            targets = np.array([[  0, np.pi, 0, 0, 0, 0],
-                                                [0.5, np.pi, 0, 0, 0, 0]]),
+    def integrate_with_scipy(self, y_0 = [0, (7/8)*np.pi, 0, 0], 
+                            targets = np.array([[  0, np.pi, 0, 0],
+                                                [0.5, np.pi, 0, 0]]),
                             target_timestamps=[0, 5, 10], 
                             tspan=15,
                             framerate=60,
@@ -151,10 +122,13 @@ class dipc_model:
 
         lag_buffer = [y_0]*int(framerate*lag_seconds)
         forces = []
-        if controller == 'FF':
-            ctrl = lambda t, e: eval_fourier(t, dipc_model.fourier_weights)
-        else:
-            ctrl = lambda t, e: (-self.K[controller]@e)[0]
+        # if controller == 'FFF':
+        #     ctrl = lambda t, e: eval_fourier(t, dipc_model.fourier_weights)
+        # elif controller == 'FFBF':
+        #     ctrl = lambda t, e: dipc_model.ff_path[int(t*framerate)]
+        # else:
+        #     ctrl = lambda t, e: (-self.K[controller]@e)[0]
+        ctrl = lambda t, e: (-self.K[controller]@e)[0]
 
         def func_for_scipy(t, x):
             lag_buffer.append(x)
@@ -173,21 +147,21 @@ class dipc_model:
         return self
     def plot_graph(self):
         plt.plot(self.soln_t, self.soln_y[0], label='$x$ (m)')
-        plt.plot(self.soln_t, self.soln_y[3], label='$\dot{x}$ (m/s)')
+        plt.plot(self.soln_t, self.soln_y[2], label='$\dot{x}$ (m/s)')
         plt.plot(self.soln_t, self.soln_y[1], label='$\\theta_1$ (rad)')
-        plt.plot(self.soln_t, self.soln_y[4], label='$\dot\\theta_1$ (rad/s)')
-        plt.plot(self.soln_t, self.soln_y[2], label='$\\theta_2$ (rad)')
-        plt.plot(self.soln_t, self.soln_y[5], label='$\dot\\theta_2$ (rad/s)')
+        plt.plot(self.soln_t, self.soln_y[3], label='$\dot\\theta_1$ (rad/s)')
         plt.plot(self.soln_forces[:, 0], self.soln_forces[:, 1], label='$u$ (N)')
         plt.xlabel('Time (s)')
         plt.legend()
     def plot_animation(self, colors, times):
         num_frames = len(self.soln_y[0])
         fig, ax = plt.subplots()
-        mat, = ax.plot(*self.get_xy(*self.soln_y[0:3, 0], self.constants[0], self.constants[1]), marker='o')
+        mat, = ax.plot(*self.get_xy(self.soln_y[0, 0], self.soln_y[2,0], self.constants[0]), marker='o')
+        time_label = ax.text(0, -0.6, '0')
         num_frames = len(self.soln_y[0])
         def animate(i):
-            mat.set_data(self.get_xy(*self.soln_y[0:3, i%(num_frames+30)-30 if i%(num_frames+30) > 29 else 0], self.constants[0], self.constants[1]))
+            mat.set_data(self.get_xy(*(self.soln_y[(0, 2), i%(num_frames+30)-30 if i%(num_frames+30) > 29 else 0]), self.constants[0]))
+            time_label.set_text(f't={round((i%(num_frames+30)-30)/60, 4)}')
             for counter, t in enumerate(times[1:]):
                 if t*60 - 10 < i < t*60 + 10:
                     mat.set_color(colors[counter+1])
@@ -204,11 +178,10 @@ class dipc_model:
             [np.cos(th), -np.sin(th)],
             [np.sin(th),  np.cos(th)]
         ])
-    def get_xy(self, x, th1, th2, l1, l2):
+    def get_xy(self, x, th1, l1):
         cart = np.array([[x], [0]])
         pend_1 = cart + dipc_model.rot(th1)@np.array([[0],[-l1]])
-        pend_2 = pend_1 + dipc_model.rot(th1+th2)@np.array([[0], [-l2]])
-        return np.concatenate([cart, pend_1, pend_2], axis=1)   
+        return np.concatenate([cart, pend_1], axis=1)   
     def print_eoms(self):
         dx, dth1, dth2, x, th1, th2 = dynamicsymbols('\dot{x}, \dot\\theta_1, \dot\\theta_2, x, \\theta_1, \\theta_2')
         print("""
@@ -223,14 +196,11 @@ class dipc_model:
         """ + sp.latex(self.ydot.subs([
             (self.y[0].diff(self.t), dx),
             (self.y[1].diff(self.t), dth1),
-            (self.y[2].diff(self.t), dth2),
             
             (self.y[0], x),
             (self.y[1], th1),
-            (self.y[2], th2),
-            (self.y[3], dx),
-            (self.y[4], dth1),
-            (self.y[5], dth2),
+            (self.y[2], dx),
+            (self.y[3], dth1),
         ])))
 #%%
 if __name__ == '__main__':
@@ -239,14 +209,23 @@ if __name__ == '__main__':
         [-3.51],
         [-3.52],
         [-3.53],
-        [-3.54],
-        [-3.55],
     ])
 
-    Q = np.diag([100, 10, 5, 1, 100, 50])
+    Q = np.diag([100, 10, 1, 100])
     R = np.diag([10])
-    model = dipc_model().linearize().lambdify().construct_PP(eigs).construct_LQR(Q, R).integrate_with_scipy(y_0 = [0,0,0,0,0,0], targets = np.array([[  0, np.pi, 0, 0, 0, 0]]), target_timestamps = [0, 3], controller = 'FF')
+    model = dipc_model().linearize().lambdify()
+    print(repr(model.A), '\n\n', repr(model.B))
+    model.construct_PP(eigs).construct_LQR(Q, R).integrate_with_scipy(
+        y_0 = [0, (7.5/8)*np.pi, 0, 0], 
+        targets = np.array([[  0, np.pi, 0, 0],
+                            [0.5, np.pi, 0, 0]]),
+                            controller = 'LQR', lag_seconds=0.05)
     # model.print_eoms()
+    # normal = model.ydot.subs(zip([model.lb, model.c, model.g, model.ma, model.mb, model.IBzz], model.constants))
+    # print(normal)
+    # print(systems.dsolve_system([sp.Eq(model.y[i].diff(model.t), normal[i]) for i in range(6)], 
+    # ics=dict(zip([i.subs(model.t, 0) for i in model.y]+[i.subs(model.t, 1.5) for i in model.y],[0, 0, 0, 0, 0, 0]+[0,sp.pi,0,0,0,0]))))
+    # print(systems.dsolve_system([sp.Eq(model.y[i].diff(model.t), normal[i]) for i in range(4)]))
     #%%
     model.plot_graph()
     model.plot_animation(['tab:blue', 'tab:orange', 'tab:blue'], [0, 5, 10])

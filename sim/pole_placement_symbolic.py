@@ -1,6 +1,7 @@
 #%%
 import sympy as sp
 # %%
+
 m, M, L, g, d = sp.symbols('m,M,L,g,d')
 k = sp.symbols('k:4')
 y = sp.symbols('\lambda_:4')

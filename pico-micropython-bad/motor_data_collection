@@ -1,0 +1,97 @@
+import machine
+from machine import Pin, PWM, I2C, SoftI2C
+from time import ticks_us, sleep, sleep_us
+from math import sin
+import sys
+import _thread
+sleep(0.5)
+
+pwm = PWM(Pin(1))
+pwm.freq(1000//5)
+direction = Pin(0)
+
+
+def set_power(power):
+    """sets power to motor, from -1 to 1
+
+    Args:
+        power (float): power in [-1,1] to write to the motor.
+    """
+    # direction.value(power>0) # not needed for victor
+    pwm.duty_ns(int(1_500_000+500_000*power))
+
+pwm.duty_u16(0)
+
+
+def reg_write(i2c, addr, reg, data):
+    """
+    Write bytes to the specified register.
+    """
+    
+    # Construct message
+    msg = bytearray().append(data)
+    
+    # Write out message to register
+    i2c.writeto_mem(addr, reg, msg)
+    
+def reg_read(i2c, addr, reg, nbytes=1):
+    """
+    Read byte(s) from specified register. If nbytes > 1, read from consecutive
+    registers.
+    """
+    
+    # Check to make sure caller is asking for 1 or more bytes
+    if nbytes < 1:
+        return bytearray()
+    
+    # Request data from specified register(s) over I2C
+    # data = i2c.readfrom_mem(addr, reg, nbytes)
+    data = i2c.readfrom_mem(addr, reg, nbytes)
+    
+    return data
+
+cart_pos = 0
+def track_encoders():
+    i2c = SoftI2C(1, scl = Pin(19), sda = Pin(18), freq = 100000)
+    print(i2c.scan())
+    print('initialized')
+    global cart_pos
+    cart_rots = 0
+    cart = 0
+    while True:
+        oldcart = cart
+        try:
+            cart = int.from_bytes(reg_read(i2c, 54, 0x0E, 2), "big")
+        except Exception as e:
+            print(e)
+        dc = cart-oldcart
+
+        if dc > 3500:
+            cart_rots -= 1
+        elif dc < -3500:
+            cart_rots += 1
+        
+        cart_pos = cart+4096*cart_rots
+
+
+encoder_thread = _thread.start_new_thread(track_encoders, ())
+
+sleep(2)
+
+while True:
+    print(cart_pos, ticks_us())
+    sleep_us(1000)
+
+pos = []
+offset = cart_pos
+stop = 1*4096 # 8 is number of revolutions (120mm/rotation, 8.33 = 1m)
+set_power(0.5)
+while True:
+    if cart_pos-offset > stop:
+        break
+    print((cart_pos, ticks_us()))
+    sleep(0.01)
+set_power(0)
+
+# for i in pos:
+#     print(((i[0]-offset)*120/4096, i[1]-pos[0][1]))

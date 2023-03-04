@@ -5,6 +5,7 @@ from scipy.integrate import solve_ivp, quad
 from scipy.optimize import minimize
 from double_pendulum_model import dipc_model
 from numba import njit
+from time import time
 #%%
 eigs = np.array([
     [-3.50],
@@ -15,11 +16,11 @@ eigs = np.array([
     [-3.55],
 ])
 
-Q = np.diag([100, 10, 5, 1, 100, 50]).astype(np.float64)
+Q = np.array([100, 10, 5, 1, 100, 50]).astype(np.float64)
 R = 10
 # R = np.diag([10])
-model = dipc_model().linearize().lambdify().construct_PP(eigs).construct_LQR(Q, R)
-tspan = (0, 3)
+model = dipc_model().linearize().lambdify().construct_PP(eigs).construct_LQR(np.diag(Q), R)
+tspan = (0, 1.5)
 framerate = 60
 y_0 = np.array([0, 0, 0, 0, 0, 0])
 target = np.array([0,np.pi,0,0,0,0]).T
@@ -39,7 +40,7 @@ def impulse_cost(times, weights):
 
 @njit
 def times_q(state):
-    return (state.T@Q@state)/framerate
+    return sum(((state**2)*Q))/framerate #instead of state.T@Q@state bc it's diagonal
 
 times_q = np.vectorize(times_q, signature='(6)->()')
 
@@ -49,12 +50,12 @@ def cost(times, y_states, weights):
     # for state in (y_states-target): 
     #     state_cost += (state.T@Q@state)/framerate
     return sum((eval_fourier(times, weights)**2)*R/framerate)+sum(times_q(y_states-target))
-
+start_time = time()
 
 def calc_cost(weights):
     soln = solve_ivp(lambda t, x: model.func(x, eval_fourier(t, weights), *model.constants).flatten(), tspan, y_0, t_eval=t_eval)
     c = sum((eval_fourier(soln.t, weights)**2)*R/framerate)+sum(times_q(soln.y.T-target))
-    print(f'cost: {c}', np.round(weights[:10], 3))
+    print(f'time: {round(time()-start_time, 5)}, cost: {c}', np.round(weights[:10], 3))
     return c
 # %%
 initial_weights = np.zeros(99)

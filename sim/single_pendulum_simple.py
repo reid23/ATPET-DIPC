@@ -11,18 +11,40 @@ L = 0.2 # length of pendulum (m)
 g = -9.81 # gravity (dm/s^2)
 d = 0 # friction
 s = 1 # pendulum is up (this is the state we linearize around)
-A = np.array([
-    [0,1,0,0],
-    [0,-d/M,-m*g/M,0],
-    [0,0,0,1],
-    [0,-s*d/(M*L),-s*(m+M)*g/(M*L),0]
-])
-B = np.array([
-    [0],
-    [1/M],
-    [0],
-    [s/(M*L)]
-]);
+# A = np.array([
+#     [0,1,0,0],
+#     [0,-d/M,-m*g/M,0],
+#     [0,0,0,1],
+#     [0,-s*d/(M*L),-s*(m+M)*g/(M*L),0]
+# ])
+# B = np.array([
+#     [0],
+#     [1/M],
+#     [0],
+#     [s/(M*L)]
+# ])
+
+A = np.array([[  0.        ,   0.        ,   1.        ,   0.        ],
+              [  0.        ,   0.        ,   0.        ,   1.        ],
+              [  0.        ,   4.51380368,   0.        , -29.95541398],
+              [  0.        ,  45.13803681,   0.        , -94.39731297]]) 
+
+B = np.array([[ 0.        ],
+              [ 0.        ],
+              [ 3.89366053],
+              [12.26993865]])
+
+
+# [[  0.           0.           1.           0.        ]
+#  [  0.           0.           0.           1.        ]
+#  [  0.           4.51380368   0.         -29.95541398]
+#  [  0.          45.13803681   0.         -94.39731297]] 
+# [[ 0.        ]
+#  [ 0.        ]
+#  [ 3.89366053]
+#  [12.26993865]]
+
+
 eigs = np.array([
     [-5.3], 
     [-5.31],
@@ -40,9 +62,9 @@ print(B)
 print(K)
 print(B@K)
 #%%
-#               x    vx   t   vt
-y0 = np.array([[0], [0], [pi], [0]])
-target = np.array([[0.1], [0], [pi], [0]])
+#               x    t    vx   vt
+y0 = np.array([[0], [pi], [0], [0]])
+target = np.array([[0.1], [pi], [0], [0]])
 
 dt = 0.03
 t_span = 10
@@ -51,7 +73,7 @@ forces = []
 def real_physics_acc(y, B, K, target):
     bu = B@K@(y-target)
     return np.array([
-        [y[1]],
+        [y[2]],
         []
     ]) + bu
 
