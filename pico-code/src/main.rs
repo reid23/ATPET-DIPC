@@ -26,11 +26,13 @@ enum CtrlMode{
 trait GetDuty{
     fn get_duty(&self, normalizer: &dyn Fn(&f32) -> Result<f32, &'static str>) -> u16;
 }
+
 impl GetDuty for f32{
     fn get_duty(&self, normalizer: &dyn Fn(&f32) -> Result<f32, &'static str>) -> u16 {
         (7820.5 * normalizer(self).unwrap_or(0.0) + 23461.5) as u16
     }
 }
+
 fn basic_norm(n: &f32) -> Result<f32, &'static str> {
     if n < &-1.0 || n > &1.0{
         Err("out of bounds, expected -1<n<1")
@@ -39,6 +41,7 @@ fn basic_norm(n: &f32) -> Result<f32, &'static str> {
     }
 }
 
+#[allow(unused_variables)]
 fn pleb_fn(t: u64, state: &[f32; 6]) -> Result<f32, &'static str>{
     //TODO: implement as needed
     if state[0] < 100.0 {
@@ -328,5 +331,3 @@ fn main() -> ! {
         channel.set_duty(cur_power);
     }
 }
-
-// End of file
