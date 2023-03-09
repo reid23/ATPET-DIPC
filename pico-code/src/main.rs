@@ -23,6 +23,30 @@ enum CtrlMode{
     USB,
     Pleb,
 }
+trait GetDuty{
+    fn get_duty(&self, normalizer: &dyn Fn(&f32) -> Result<f32, &'static str>) -> u16;
+}
+impl GetDuty for f32{
+    fn get_duty(&self, normalizer: &dyn Fn(&f32) -> Result<f32, &'static str>) -> u16 {
+        (7820.5 * normalizer(self).unwrap_or(0.0) + 23461.5) as u16
+    }
+}
+fn basic_norm(n: &f32) -> Result<f32, &'static str> {
+    if n < &-1.0 || n > &1.0{
+        Err("out of bounds, expected -1<n<1")
+    } else {
+        Ok(*n)
+    }
+}
+
+fn pleb_fn(t: u64, state: &[f32; 6]) -> Result<f32, &'static str>{
+    //TODO: implement as needed
+    if state[0] < 100.0 {
+        Ok(0.1)
+    } else {
+        Ok(0.0)
+    }
+}
 
 #[entry]
 fn main() -> ! {
@@ -80,7 +104,7 @@ fn main() -> ! {
     let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
         .manufacturer("Reid Dye")
         .product("ATPET Inverted Pendulum")
-        // .serial_number("69420") // lol
+        .serial_number("0001")
         .device_class(2) // from: https://www.usb.org/defined-class-codes
         .build();
 
@@ -143,6 +167,9 @@ fn main() -> ! {
     let (mut top_pos, mut top_rots) = (0, 0);
     let (mut end_pos, mut end_rots) = (0, 0);
     let (mut dc, mut dt, mut de);
+    let (mut oldvc, mut oldvt, mut oldve) = (0,0,0);
+    let (mut vc, mut vt, mut ve) = (0f32,0f32,0f32);
+
     
     // offsets
     let mut cart_offset = [0; 2];
@@ -165,7 +192,8 @@ fn main() -> ! {
     let mut cur_power = 0u16;
 
     let timer = Timer::new(pac.TIMER, &mut pac.RESETS);
-    let now = timer.get_counter();
+    let t0 = timer.get_counter();
+    let mut prev = timer.get_counter();
     loop {
         let (oldc, oldt, olde) = (cart_pos, top_pos, end_pos);
         let mut cart = [0; 2];
@@ -174,33 +202,55 @@ fn main() -> ! {
         
         // first grab all three encoder positions
         cart_i2c
-        .exec(0x36u8, &mut [
-            Operation::Write(&[0x0Eu8]),
-            Operation::Read(&mut cart),
-            ])
+            .exec(0x36u8, &mut [
+                Operation::Write(&[0x0Eu8]),
+                Operation::Read(&mut cart),
+                ])
             .expect("Failed to run all operations");
         
         top_i2c.write_read(0x36, &[0x0Eu8], &mut top).unwrap();
         end_i2c.write_read(0x36, &[0x0Eu8], &mut end).unwrap();
         // now update the positions
         
-        (cart_pos, top_pos, end_pos) = (u16::from_be_bytes(cart) as i32, u16::from_be_bytes(top) as i32, u16::from_be_bytes(end) as i32);
-        (dc, dt, de) = (cart_pos-oldc, top_pos-oldt, end_pos-olde);
+        (cart_pos, top_pos, end_pos) = ((u16::from_be_bytes(cart) - u16::from_be_bytes(cart_offset)) as i32, 
+                                        (u16::from_be_bytes(top) - u16::from_be_bytes(top_offset)) as i32, 
+                                        (u16::from_be_bytes(end) - u16::from_be_bytes(end_offset)) as i32);
+        dc = cart_pos-oldc;
+        dt = top_pos-oldt;
+        de = end_pos-olde;
         
         // check if angle wrap happened
-        if dc > 3500 { cart_rots -= 1; dc = -dc+4096;}
-        else if dc < -3500 { cart_rots += 1; dc = -dc+4096;}
+        if dc > 3500 { cart_rots -= 1; }
+        else if dc < -3500 { cart_rots += 1; }
         
-        if dt > 3500 { top_rots -= 1;  dt = -dt+4096;}
-        else if dt < -3500 { top_rots += 1;  dt = -dt+4096;}
+        if dt > 3500 { top_rots -= 1; }
+        else if dt < -3500 { top_rots += 1; }
         
-        if de > 3500 { end_rots -= 1;  de = -de+4096;}
-        else if de < -3500 { end_rots += 1;  de = -de+4096;}
+        if de > 3500 { end_rots -= 1; }
+        else if de < -3500 { end_rots += 1; }
         
-        let prev = now;
-        let now = timer.get_counter();
-        let dt_real = now.checked_duration_since(prev).unwrap().to_micros();
-        
+        let pos = [cart_pos+cart_rots*4096, top_pos+top_rots*4096, end_pos+end_rots*4096];
+
+        let dt_real = timer.get_counter().checked_duration_since(prev).unwrap().to_micros();
+        if dt_real > 50_000 {
+            prev = timer.get_counter();
+            (vc, vt, ve) = (
+                (((pos[0]-oldvc) as f32)/(dt_real as f32)) * 29.296875, //0.120/4096 (meters/ticks) times 1_000_000 (us/s)
+                (((pos[1]-oldvt) as f32)/(dt_real as f32)) * 87890.625, //360/4096 (deg/ticks) times 1_000_000 (us/s)
+                (((pos[2]-oldve) as f32)/(dt_real as f32)) * 87890.625,
+            );
+            (oldvc, oldvt, oldve) = (pos[0], pos[1], pos[2]);
+        }
+
+        let state = [
+            pos[0] as f32 * 0.000029296875,
+            pos[1] as f32 * 0.087890625,
+            pos[2] as f32 * 0.087890625,
+            vc,
+            vt,
+            ve,
+        ];
+
         // Check if we need to do usb stuff (aka did we receive a message)
         if usb_dev.poll(&mut [&mut serial]) {
             let mut buf = [0u8; 5]; //format: 1 byte command, up to 4 bytes data
@@ -208,7 +258,7 @@ fn main() -> ! {
                 Ok(_) => {
                     match buf[0] {
                         0 => {
-                            cur_power = u16::from_be_bytes([buf[1], buf[2]]);
+                            cur_power = ((u16::from_be_bytes([buf[1], buf[2]]) as f32 - 32768.0) / 32768.0).get_duty(&basic_norm);
                         },
                         1 => {
                             mode = match buf[1] {
@@ -234,10 +284,10 @@ fn main() -> ! {
                             top_rots = 0;
                             end_rots = 0;
                         },
-                        _ => {}, // 0 is included so sending all 0s won't do anything
+                        _ => {},
                     }
-                    let mut message: String<36> = String::new();
-                    writeln!(&mut message, "{},{},{}\n", cart_pos+4096*cart_rots, top_pos+4096*top_rots, end_pos+4096*end_rots).unwrap();
+                    let mut message: String<100> = String::new();
+                    write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", state[0], state[1], state[2], state[3], state[4], state[5]).unwrap();
                     match serial.write(message.as_bytes()){
                         Ok(_) => {},
                         Err(_) => {},
@@ -248,24 +298,32 @@ fn main() -> ! {
         }
         match mode {
             CtrlMode::Local => {
-                cur_power = ((
-                                (cart_pos as f32)*0.029296875*k[0] 
-                                + (top_pos  as f32)*0.00153398078*k[1]
-                                + (end_pos as f32)*0.00153398078*k[2] 
-                                + k[3]*1533.98078789*(dc as f32)/(dt_real as f32) //2pi/4096 (radians/ticks) times 1_000_000 (us/s)
-                                + k[4]*1533.98078789*(dt as f32)/(dt_real as f32)
-                                + k[5]*1533.98078789*(de as f32)/(dt_real as f32)
-                            )*7820.5 + 23461.5) as u16; //calibrated values for 0, -1, 1
+                cur_power = (
+                                state[0]*k[0] 
+                              + state[1]*k[1]
+                              + state[2]*k[2] 
+                              + state[3]*k[3] //2pi/4096 (radians/ticks) times 1_000_000 (us/s)
+                              + state[4]*k[4]
+                              + state[5]*k[5]
+                            ).get_duty(&basic_norm); //calibrated values for 0, -1, 1
             },
             CtrlMode::USB => {
                 //do nothing, we already set power above
             },
             CtrlMode::Pleb => {
                 //TODO: implement this as needed
+                cur_power = pleb_fn(timer
+                                        .get_counter()
+                                        .checked_duration_since(t0)
+                                        .unwrap()
+                                        .to_micros(),
+                                    &state)
+                    .unwrap()
+                    .get_duty(&basic_norm);
             },
         }
-        if cart_pos > 900*120/4096 || cart_pos < -900*120/4096 {
-            cur_power = 0;
+        if pos[0] > (0.8*0.12/4096.0) as i32 || pos[0] < (-0.8*0.12/4096.0) as i32 {
+            cur_power = 0.0.get_duty(&basic_norm);
         }
         channel.set_duty(cur_power);
     }
