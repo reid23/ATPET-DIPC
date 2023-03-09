@@ -232,7 +232,7 @@ fn main() -> ! {
         let pos = [cart_pos+cart_rots*4096, top_pos+top_rots*4096, end_pos+end_rots*4096];
 
         let dt_real = timer.get_counter().checked_duration_since(prev).unwrap().to_micros();
-        if dt_real > 50_000 {
+        if dt_real > 10_000 {
             prev = timer.get_counter();
             (vc, vt, ve) = (
                 (((pos[0]-oldvc) as f32)/(dt_real as f32)) * 29.296875, //0.120/4096 (meters/ticks) times 1_000_000 (us/s)
