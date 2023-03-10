@@ -218,13 +218,11 @@ let pins = rp_pico::Pins::new(
         // first grab all three encoder positions
         cart_i2c
             .exec(0x36u8, &mut [
-                // Operation::Write(&[0x0Cu8]),
+                Operation::Write(&[0x0Cu8]),
                 Operation::Read(&mut cart),
                 ])
             .unwrap();
         
-        // top_i2c.write_read(0x36, &[0x0Cu8], &mut top).unwrap();
-        // end_i2c.write_read(0x36, &[0x0Cu8], &mut end).unwrap();
         top_i2c.write_read(0x36, &[0x0Cu8], &mut top).unwrap();
         end_i2c.write_read(0x36, &[0x0Cu8], &mut end).unwrap();
         // now update the positions
@@ -318,15 +316,6 @@ let pins = rp_pico::Pins::new(
                                 Ok(_) => {},
                                 Err(_) => {},
                             }
-                            let mut status = [0u8; 6];
-                            cart_i2c
-                            .exec(0x36u8, &mut [
-                                Operation::Write(&[0x0Cu8]),
-                                Operation::Read(&mut status[0..=1]),
-                            ])
-                            .expect("Failed to run all operations");
-                            top_i2c.write_read(0x36, &[0x0Cu8], &mut status[2..=3]).unwrap();
-                            end_i2c.write_read(0x36, &[0x0Cu8], &mut status[4..=5]).unwrap();
                         },
                         _ => {},
                     }
