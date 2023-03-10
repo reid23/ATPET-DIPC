@@ -63,7 +63,7 @@ fn main() -> ! {
     // its copied from the examples and it works I guess
     // Grab our singleton objects
     let mut pac = pac::Peripherals::take().unwrap();
-    let core = pac::CorePeripherals::take().unwrap();
+    let _core = pac::CorePeripherals::take().unwrap();
 
     // Set up the watchdog driver - needed by the clock setup code
     let mut watchdog = hal::Watchdog::new(pac.WATCHDOG);
@@ -312,19 +312,13 @@ let pins = rp_pico::Pins::new(
                             let mut message: String<64> = String::new();
                             // binl = lambda x: bin(x)[2:].rjust(8, '0')[::-1]
                             write!(&mut message, "cart: {:08b}, top: {:08b}, end: {:08b}\n", status[0], status[1], status[2]).unwrap();
-                            match serial.write(message.as_bytes()){
-                                Ok(_) => {},
-                                Err(_) => {},
-                            }
+                            let _ = serial.write(message.as_bytes());
                         },
                         _ => {},
                     }
                     let mut message: String<100> = String::new();
                     write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", state[0], state[1], state[2], state[3], state[4], state[5]).unwrap();
-                    match serial.write(message.as_bytes()){
-                        Ok(_) => {},
-                        Err(_) => {},
-                    }
+                    let _ = serial.write(message.as_bytes());
                 }
                 Err(_e) => {} // do nothing, idk what to do
             }
