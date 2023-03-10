@@ -106,10 +106,10 @@ let pins = rp_pico::Pins::new(
         &mut pac.RESETS,
     ));
     
-    //allow sleeping
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
+    // allow sleeping
+    // let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
     // sleep for a bit so we know if it rebooted
-    delay.delay_ms(1500);
+    // delay.delay_ms(1500);
 
     // turn on the status LED to show the board isn't ded and all the setup worked (probably)
     led_pin.set_high().unwrap();
@@ -193,8 +193,8 @@ let pins = rp_pico::Pins::new(
     .exec(0x36u8, &mut [
         Operation::Write(&[0x0Cu8]),
         Operation::Read(&mut cart_offset),
-        ])
-        .expect("Failed to run all operations");
+    ])
+    .expect("Failed to run all operations");
     
     top_i2c.write_read(0x36, &[0x0Cu8], &mut top_offset).unwrap();
     end_i2c.write_read(0x36, &[0x0Cu8], &mut end_offset).unwrap();
@@ -218,11 +218,13 @@ let pins = rp_pico::Pins::new(
         // first grab all three encoder positions
         cart_i2c
             .exec(0x36u8, &mut [
-                Operation::Write(&[0x0Cu8]),
+                // Operation::Write(&[0x0Cu8]),
                 Operation::Read(&mut cart),
                 ])
             .unwrap();
         
+        // top_i2c.write_read(0x36, &[0x0Cu8], &mut top).unwrap();
+        // end_i2c.write_read(0x36, &[0x0Cu8], &mut end).unwrap();
         top_i2c.write_read(0x36, &[0x0Cu8], &mut top).unwrap();
         end_i2c.write_read(0x36, &[0x0Cu8], &mut end).unwrap();
         // now update the positions
@@ -303,21 +305,33 @@ let pins = rp_pico::Pins::new(
                             let mut status = [0u8; 3];
                             cart_i2c
                                 .exec(0x36u8, &mut [
-                                    Operation::Write(&[0x0Cu8]),
-                                    Operation::Read(&mut status[0..1]),
+                                    Operation::Write(&[0x0Bu8]),
+                                    Operation::Read(&mut status[0..=0]),
                                 ])
                                 .expect("Failed to run all operations");
-                            top_i2c.write_read(0x36, &[0x0Cu8], &mut status[1..2]).unwrap();
-                            end_i2c.write_read(0x36, &[0x0Cu8], &mut status[2..3]).unwrap();
-                            match serial.write(&status){
+                            top_i2c.write_read(0x36, &[0x0Bu8], &mut status[1..=1]).unwrap();
+                            end_i2c.write_read(0x36, &[0x0Bu8], &mut status[2..=2]).unwrap();
+                            let mut message: String<64> = String::new();
+                            // binl = lambda x: bin(x)[2:].rjust(8, '0')[::-1]
+                            write!(&mut message, "cart: {:08b}, top: {:08b}, end: {:08b}\n", status[0], status[1], status[2]).unwrap();
+                            match serial.write(message.as_bytes()){
                                 Ok(_) => {},
                                 Err(_) => {},
                             }
+                            let mut status = [0u8; 6];
+                            cart_i2c
+                            .exec(0x36u8, &mut [
+                                Operation::Write(&[0x0Cu8]),
+                                Operation::Read(&mut status[0..=1]),
+                            ])
+                            .expect("Failed to run all operations");
+                            top_i2c.write_read(0x36, &[0x0Cu8], &mut status[2..=3]).unwrap();
+                            end_i2c.write_read(0x36, &[0x0Cu8], &mut status[4..=5]).unwrap();
                         },
                         _ => {},
                     }
                     let mut message: String<100> = String::new();
-                    write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", state[0], state[1], state[2], state[3], state[4], state[5], u16::from_be_bytes([buf[1], buf[2]])).unwrap();
+                    write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", state[0], state[1], state[2], state[3], state[4], state[5]).unwrap();
                     match serial.write(message.as_bytes()){
                         Ok(_) => {},
                         Err(_) => {},
