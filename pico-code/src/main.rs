@@ -36,8 +36,14 @@ impl GetDuty for f32{
 fn basic_norm(n: &f32) -> Result<f32, &'static str> {
     if n < &-1.0 || n > &1.0{
         Err("out of bounds, expected -1<n<1")
+
+    // now cope because we can't change the deadband
+    } else if n > &0.0 {
+        Ok(0.04+0.96 * n)
+    } else if n < &0.0{
+        Ok(-0.04+0.96 * n)
     } else {
-        Ok(*n)
+        Ok(0.0)
     }
 }
 
@@ -57,7 +63,7 @@ fn main() -> ! {
     // its copied from the examples and it works I guess
     // Grab our singleton objects
     let mut pac = pac::Peripherals::take().unwrap();
-    let _core = pac::CorePeripherals::take().unwrap();
+    let core = pac::CorePeripherals::take().unwrap();
 
     // Set up the watchdog driver - needed by the clock setup code
     let mut watchdog = hal::Watchdog::new(pac.WATCHDOG);
@@ -75,22 +81,22 @@ fn main() -> ! {
     )
     .ok()
     .unwrap();
-    // The single-cycle I/O block controls our GPIO pins
-    let sio = hal::Sio::new(pac.SIO);
+// The single-cycle I/O block controls our GPIO pins
+let sio = hal::Sio::new(pac.SIO);
 
-    // Set the pins up according to their function on this particular board
-    let pins = rp_pico::Pins::new(
+// Set the pins up according to their function on this particular board
+let pins = rp_pico::Pins::new(
         pac.IO_BANK0,
         pac.PADS_BANK0,
         sio.gpio_bank0,
         &mut pac.RESETS,
     );
-
+    
     // ok ok we're done with that funny stuff
-
+    
     // status LED to show that board is on and not broken
     let mut led_pin = pins.led.into_push_pull_output();
-
+    
     // usb driver
     let usb_bus = UsbBusAllocator::new(hal::usb::UsbBus::new(
         pac.USBCTRL_REGS,
@@ -99,7 +105,14 @@ fn main() -> ! {
         true,
         &mut pac.RESETS,
     ));
+    
+    //allow sleeping
+    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
+    // sleep for a bit so we know if it rebooted
+    delay.delay_ms(1500);
 
+    // turn on the status LED to show the board isn't ded and all the setup worked (probably)
+    led_pin.set_high().unwrap();
     // Set up the USB Communications Class Device driver thing (this is the thing we can actually write to)
     let mut serial = SerialPort::new(&usb_bus);
 
@@ -147,10 +160,10 @@ fn main() -> ! {
         &mut pac.RESETS,
         &clocks.peripheral_clock,
     );
-
+    
     // Init PWMs (idk what this does but it's important)
     let mut pwm_slices = hal::pwm::Slices::new(pac.PWM, &mut pac.RESETS);
-
+    
     // Configure it
     // we're using hw pwm to drive the victor
     let pwm = &mut pwm_slices.pwm0;
@@ -162,9 +175,6 @@ fn main() -> ! {
     let channel = &mut pwm.channel_b;
     channel.output_to(pins.gpio1);
 
-    // turn on the status LED to show the board isn't ded and all the setup worked (probably)
-    led_pin.set_high().unwrap();
-
     // init variables to track positions
     let (mut cart_pos, mut cart_rots) = (0, 0);
     let (mut top_pos, mut top_rots) = (0, 0);
@@ -172,33 +182,35 @@ fn main() -> ! {
     let (mut dc, mut dt, mut de);
     let (mut oldvc, mut oldvt, mut oldve) = (0,0,0);
     let (mut vc, mut vt, mut ve) = (0f32,0f32,0f32);
-
+    
     
     // offsets
     let mut cart_offset = [0; 2];
     let mut top_offset = [0; 2];
     let mut end_offset = [0; 2];
-
     // first grab all three encoder positions
     cart_i2c
-        .exec(0x36u8, &mut [
-            Operation::Write(&[0x0Eu8]),
-            Operation::Read(&mut cart_offset),
+    .exec(0x36u8, &mut [
+        Operation::Write(&[0x0Cu8]),
+        Operation::Read(&mut cart_offset),
         ])
         .expect("Failed to run all operations");
-
-    top_i2c.write_read(0x36, &[0x0Eu8], &mut top_offset).unwrap();
-    end_i2c.write_read(0x36, &[0x0Eu8], &mut end_offset).unwrap();
-
+    
+    top_i2c.write_read(0x36, &[0x0Cu8], &mut top_offset).unwrap();
+    end_i2c.write_read(0x36, &[0x0Cu8], &mut end_offset).unwrap();
+    
     let mut k = [0.0f32; 6];
     let mut mode = CtrlMode::USB;
     let mut cur_power = 0u16;
-
+    
     let timer = Timer::new(pac.TIMER, &mut pac.RESETS);
     let t0 = timer.get_counter();
     let mut prev = timer.get_counter();
+
+    let (oldc, oldt, olde) = (cart_pos, top_pos, end_pos);
+
+
     loop {
-        let (oldc, oldt, olde) = (cart_pos, top_pos, end_pos);
         let mut cart = [0; 2];
         let mut top = [0; 2];
         let mut end = [0; 2];
@@ -206,13 +218,13 @@ fn main() -> ! {
         // first grab all three encoder positions
         cart_i2c
             .exec(0x36u8, &mut [
-                Operation::Write(&[0x0Eu8]),
+                Operation::Write(&[0x0Cu8]),
                 Operation::Read(&mut cart),
                 ])
-            .expect("Failed to run all operations");
+            .unwrap();
         
-        top_i2c.write_read(0x36, &[0x0Eu8], &mut top).unwrap();
-        end_i2c.write_read(0x36, &[0x0Eu8], &mut end).unwrap();
+        top_i2c.write_read(0x36, &[0x0Cu8], &mut top).unwrap();
+        end_i2c.write_read(0x36, &[0x0Cu8], &mut end).unwrap();
         // now update the positions
         
         (cart_pos, top_pos, end_pos) = ((u16::from_be_bytes(cart) - u16::from_be_bytes(cart_offset)) as i32, 
@@ -259,9 +271,9 @@ fn main() -> ! {
             let mut buf = [0u8; 5]; //format: 1 byte command, up to 4 bytes data
             match serial.read(&mut buf) {
                 Ok(_) => {
-                    match buf[0] {
+                    match buf[0] { //32767.5
                         0 => {
-                            cur_power = ((u16::from_be_bytes([buf[1], buf[2]]) as f32 - 32768.0) / 32768.0).get_duty(&basic_norm);
+                            cur_power = ((u16::from_be_bytes([buf[1], buf[2]]) as f32 / 32767.5) - 1.0).get_duty(&basic_norm);
                         },
                         1 => {
                             mode = match buf[1] {
@@ -277,20 +289,35 @@ fn main() -> ! {
                         9 => {    
                             cart_i2c
                                 .exec(0x36u8, &mut [
-                                    Operation::Write(&[0x0Eu8]),
+                                    Operation::Write(&[0x0Cu8]),
                                     Operation::Read(&mut cart_offset),
                                 ])
                                 .expect("Failed to run all operations");
-                            top_i2c.write_read(0x36, &[0x0Eu8], &mut top_offset).unwrap();
-                            end_i2c.write_read(0x36, &[0x0Eu8], &mut end_offset).unwrap();
+                            top_i2c.write_read(0x36, &[0x0Cu8], &mut top_offset).unwrap();
+                            end_i2c.write_read(0x36, &[0x0Cu8], &mut end_offset).unwrap();
                             cart_rots = 0;
                             top_rots = 0;
                             end_rots = 0;
                         },
+                        10 => {
+                            let mut status = [0u8; 3];
+                            cart_i2c
+                                .exec(0x36u8, &mut [
+                                    Operation::Write(&[0x0Cu8]),
+                                    Operation::Read(&mut status[0..1]),
+                                ])
+                                .expect("Failed to run all operations");
+                            top_i2c.write_read(0x36, &[0x0Cu8], &mut status[1..2]).unwrap();
+                            end_i2c.write_read(0x36, &[0x0Cu8], &mut status[2..3]).unwrap();
+                            match serial.write(&status){
+                                Ok(_) => {},
+                                Err(_) => {},
+                            }
+                        },
                         _ => {},
                     }
                     let mut message: String<100> = String::new();
-                    write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", state[0], state[1], state[2], state[3], state[4], state[5]).unwrap();
+                    write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", state[0], state[1], state[2], state[3], state[4], state[5], u16::from_be_bytes([buf[1], buf[2]])).unwrap();
                     match serial.write(message.as_bytes()){
                         Ok(_) => {},
                         Err(_) => {},
@@ -325,9 +352,9 @@ fn main() -> ! {
                     .get_duty(&basic_norm);
             },
         }
-        if pos[0] > (0.8*0.12/4096.0) as i32 || pos[0] < (-0.8*0.12/4096.0) as i32 {
-            cur_power = 0.0.get_duty(&basic_norm);
-        }
+        // if state[0] > 0.8 || state[0] < -0.8 {
+        //     cur_power = 0.0.get_duty(&basic_norm);
+        // }
         channel.set_duty(cur_power);
     }
 }
