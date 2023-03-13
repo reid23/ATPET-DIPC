@@ -109,7 +109,6 @@ fn main() -> ! {
     // Output channel B on PWM0 to the GPIO1 pin
     let channel = &mut pwm.channel_b;
     channel.output_to(pins.gpio1);
-    channel.set_duty(0.0.get_duty(&basic_norm));
     
     // status LED to show that board is on and not broken
     let mut led_pin = pins.led.into_push_pull_output();
@@ -132,7 +131,7 @@ fn main() -> ! {
     led_pin.set_high().unwrap();
     // Set up the USB Communications Class Device driver thing (this is the thing we can actually write to)
     let mut serial = SerialPort::new(&usb_bus);
-
+    
     // make this emulate a usb device
     let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
         .manufacturer("Reid Dye")
@@ -165,7 +164,7 @@ fn main() -> ! {
         &mut pac.RESETS,
         &clocks.peripheral_clock,
     );
-
+    
     // set up second hw i2c for end pendulum
     let end_sda = pins.gpio14.into_mode::<hal::gpio::FunctionI2C>();
     let end_scl = pins.gpio15.into_mode::<hal::gpio::FunctionI2C>();
@@ -178,7 +177,8 @@ fn main() -> ! {
         &clocks.peripheral_clock,
     );
     
-
+    channel.set_duty(0.0.get_duty(&basic_norm));
+    
     // init variables to track positions
     let (mut cart_pos, mut cart_rots) = (0, 0);
     let (mut top_pos, mut top_rots) = (0, 0);
