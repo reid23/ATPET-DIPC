@@ -50,8 +50,8 @@ fn basic_norm(n: &f32) -> Result<f32, &'static str> {
 #[allow(unused_variables)]
 fn pleb_fn(t: u64, state: &[f32; 6]) -> Result<f32, &'static str>{
     //TODO: implement as needed
-    if state[0] < 100.0 {
-        Ok(0.1)
+    if state[0] > 100.0 || state[0] < -100.0 {
+        Ok(0.2)
     } else {
         Ok(0.0)
     }
@@ -81,11 +81,12 @@ fn main() -> ! {
     )
     .ok()
     .unwrap();
-// The single-cycle I/O block controls our GPIO pins
-let sio = hal::Sio::new(pac.SIO);
+    
+    // The single-cycle I/O block controls our GPIO pins
+    let sio = hal::Sio::new(pac.SIO);
 
-// Set the pins up according to their function on this particular board
-let pins = rp_pico::Pins::new(
+    // Set the pins up according to their function on this particular board
+    let pins = rp_pico::Pins::new(
         pac.IO_BANK0,
         pac.PADS_BANK0,
         sio.gpio_bank0,
@@ -93,6 +94,22 @@ let pins = rp_pico::Pins::new(
     );
     
     // ok ok we're done with that funny stuff
+
+    // Init PWMs (idk what this does but it's important)
+    let mut pwm_slices = hal::pwm::Slices::new(pac.PWM, &mut pac.RESETS);
+    
+    // Configure it
+    // we're using hw pwm to drive the victor
+    let pwm = &mut pwm_slices.pwm0;
+    pwm.set_ph_correct();
+    pwm.set_div_int(4u8); // 50 hz = 20, 4 = 238.42 hz (4.19ms period) 0011110100011001 = 1ms, 0111101000000000 = 2ms (nah lets just do 1ms<<1)
+    pwm.enable();
+    
+    //TODO: figure out  why this doesn't work and it doesn't set pwm on startup
+    // Output channel B on PWM0 to the GPIO1 pin
+    let channel = &mut pwm.channel_b;
+    channel.output_to(pins.gpio1);
+    channel.set_duty(0.0.get_duty(&basic_norm));
     
     // status LED to show that board is on and not broken
     let mut led_pin = pins.led.into_push_pull_output();
@@ -161,19 +178,6 @@ let pins = rp_pico::Pins::new(
         &clocks.peripheral_clock,
     );
     
-    // Init PWMs (idk what this does but it's important)
-    let mut pwm_slices = hal::pwm::Slices::new(pac.PWM, &mut pac.RESETS);
-    
-    // Configure it
-    // we're using hw pwm to drive the victor
-    let pwm = &mut pwm_slices.pwm0;
-    pwm.set_ph_correct();
-    pwm.set_div_int(4u8); // 50 hz = 20, 4 = 238.42 hz (4.19ms period) 0011110100011001 = 1ms, 0111101000000000 = 2ms (nah lets just do 1ms<<1)
-    pwm.enable();
-
-    // Output channel B on PWM0 to the GPIO1 pin
-    let channel = &mut pwm.channel_b;
-    channel.output_to(pins.gpio1);
 
     // init variables to track positions
     let (mut cart_pos, mut cart_rots) = (0, 0);
@@ -191,13 +195,13 @@ let pins = rp_pico::Pins::new(
     // first grab all three encoder positions
     cart_i2c
     .exec(0x36u8, &mut [
-        Operation::Write(&[0x0Cu8]),
+        Operation::Write(&[0x0Eu8]),
         Operation::Read(&mut cart_offset),
     ])
     .expect("Failed to run all operations");
     
-    top_i2c.write_read(0x36, &[0x0Cu8], &mut top_offset).unwrap();
-    end_i2c.write_read(0x36, &[0x0Cu8], &mut end_offset).unwrap();
+    top_i2c.write_read(0x36, &[0x0Eu8], &mut top_offset).unwrap();
+    end_i2c.write_read(0x36, &[0x0Eu8], &mut end_offset).unwrap();
     
     let mut k = [0.0f32; 6];
     let mut mode = CtrlMode::USB;
@@ -209,7 +213,7 @@ let pins = rp_pico::Pins::new(
 
     let (oldc, oldt, olde) = (cart_pos, top_pos, end_pos);
 
-
+    
     loop {
         let mut cart = [0; 2];
         let mut top = [0; 2];
@@ -218,18 +222,18 @@ let pins = rp_pico::Pins::new(
         // first grab all three encoder positions
         cart_i2c
             .exec(0x36u8, &mut [
-                Operation::Write(&[0x0Cu8]),
+                Operation::Write(&[0x0Eu8]),
                 Operation::Read(&mut cart),
                 ])
             .unwrap();
         
-        top_i2c.write_read(0x36, &[0x0Cu8], &mut top).unwrap();
-        end_i2c.write_read(0x36, &[0x0Cu8], &mut end).unwrap();
+        top_i2c.write_read(0x36, &[0x0Eu8], &mut top).unwrap();
+        end_i2c.write_read(0x36, &[0x0Eu8], &mut end).unwrap();
         // now update the positions
         
-        (cart_pos, top_pos, end_pos) = ((u16::from_be_bytes(cart) - u16::from_be_bytes(cart_offset)) as i32, 
-                                        (u16::from_be_bytes(top) - u16::from_be_bytes(top_offset)) as i32, 
-                                        (u16::from_be_bytes(end) - u16::from_be_bytes(end_offset)) as i32);
+        (cart_pos, top_pos, end_pos) = (u16::from_be_bytes(cart) as i32 - u16::from_be_bytes(cart_offset) as i32, 
+                                        u16::from_be_bytes(top) as i32 - u16::from_be_bytes(top_offset) as i32, 
+                                        u16::from_be_bytes(end) as i32 - u16::from_be_bytes(end_offset) as i32);
         dc = cart_pos-oldc;
         dt = top_pos-oldt;
         de = end_pos-olde;
@@ -289,12 +293,12 @@ let pins = rp_pico::Pins::new(
                         9 => {    
                             cart_i2c
                                 .exec(0x36u8, &mut [
-                                    Operation::Write(&[0x0Cu8]),
+                                    Operation::Write(&[0x0Eu8]),
                                     Operation::Read(&mut cart_offset),
                                 ])
                                 .expect("Failed to run all operations");
-                            top_i2c.write_read(0x36, &[0x0Cu8], &mut top_offset).unwrap();
-                            end_i2c.write_read(0x36, &[0x0Cu8], &mut end_offset).unwrap();
+                            top_i2c.write_read(0x36, &[0x0Eu8], &mut top_offset).unwrap();
+                            end_i2c.write_read(0x36, &[0x0Eu8], &mut end_offset).unwrap();
                             cart_rots = 0;
                             top_rots = 0;
                             end_rots = 0;
