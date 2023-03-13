@@ -129,6 +129,8 @@ fn main() -> ! {
 
     // turn on the status LED to show the board isn't ded and all the setup worked (probably)
     led_pin.set_high().unwrap();
+    channel.set_duty(0.0.get_duty(&basic_norm));
+
     // Set up the USB Communications Class Device driver thing (this is the thing we can actually write to)
     let mut serial = SerialPort::new(&usb_bus);
     
