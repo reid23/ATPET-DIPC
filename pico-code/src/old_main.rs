@@ -18,12 +18,6 @@ use embedded_hal::prelude::_embedded_hal_blocking_i2c_WriteRead; // actual i2c f
 use fugit::RateExtU32; // for .kHz() and similar
 use panic_halt as _; // make sure program halts on panic (need to mention crate for it to be linked)
 
-use crate::hal::I2C;
-use crate::hal::gpio::Pins;
-use cortex_m_rt::interrupt;
-use crate::pac::PIO0;
-use crate::hal::pio::SM0;
-
 enum CtrlMode{
     Local,
     USB,
@@ -54,51 +48,17 @@ fn basic_norm(n: &f32) -> Result<f32, &'static str> {
 }
 
 #[allow(unused_variables)]
-fn pleb_fn(t: u64, cur_state: &[f32; 6]) -> Result<f32, &'static str>{
+fn pleb_fn(t: u64, state: &[f32; 6]) -> Result<f32, &'static str>{
     //TODO: implement as needed
-    if cur_state[0] > 100.0 || cur_state[0] < -100.0 {
+    if state[0] > 100.0 || state[0] < -100.0 {
         Ok(0.2)
     } else {
         Ok(0.0)
     }
 }
 
-static mut POS: Option<[i32; 3]> = None;
-static mut STATE: Option<[f32; 6]> = None;
-static mut MODE: Option<CtrlMode> = None;
-static mut CUR_POWER: Option<u16> = None;
-static mut K: Option<[f32; 6]> = None;
-
-static mut CART_I2C: Option<i2c_pio::I2C<PIO0, SM0, Gpio18, Gpio19>> = None; //I2C<PIO0, SM0, Gpio18, Gpio19>
-static mut TOP_I2C: Option<hal::I2C<I2C, Pins>> = None;
-static mut END_I2C: Option<hal::I2C<I2C, Pins>> = None;
-
-static mut CART_ROTS: Option<i32> = None;
-static mut TOP_ROTS: Option<i32> = None;
-static mut END_ROTS: Option<i32> = None;
-
-static mut CART_OFFSET: Option<[u8; 2]> = None;
-static mut TOP_OFFSET: Option<[u8; 2]> = None;
-static mut END_OFFSET: Option<[u8; 2]> = None;
-
-/// The USB Device Driver (shared with the interrupt).
-static mut USB_DEVICE: Option<UsbDevice<hal::usb::UsbBus>> = None;
-
-/// The USB Bus Driver (shared with the interrupt).
-static mut USB_BUS: Option<UsbBusAllocator<hal::usb::UsbBus>> = None;
-
-/// The USB Serial Device Driver (shared with the interrupt).
-static mut USB_SERIAL: Option<SerialPort<hal::usb::UsbBus>> = None;
-
-
 #[entry]
 fn main() -> ! {
-    let mut pos: [i32; 3];
-    let mut state: [f32; 6];
-    unsafe {
-        POS = Some(pos);
-        STATE = Some(state);
-    }
     // ok I have no clue what any of this next bit does, but 
     // its copied from the examples and it works I guess
     // Grab our singleton objects
@@ -175,23 +135,6 @@ fn main() -> ! {
     // Set up the USB Communications Class Device driver thing (this is the thing we can actually write to)
     let mut serial = SerialPort::new(&usb_bus);
     
-    
-    unsafe {
-        // Note (safety): This is safe as interrupts haven't been started yet
-        USB_BUS = Some(usb_bus);
-    }
-
-    // Grab a reference to the USB Bus allocator. We are promising to the
-    // compiler not to take mutable access to this global variable whilst this
-    // reference exists!
-    let bus_ref = unsafe { USB_BUS.as_ref().unwrap() };
-
-    // Set up the USB Communications Class Device driver
-    let serial = SerialPort::new(bus_ref);
-    unsafe {
-        USB_SERIAL = Some(serial);
-    }
-    
     // make this emulate a usb device
     let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
         .manufacturer("Reid Dye")
@@ -200,15 +143,9 @@ fn main() -> ! {
         .device_class(2) // from: https://www.usb.org/defined-class-codes
         .build();
 
-    unsafe {
-        // Note (safety): This is safe as interrupts haven't been started yet
-        USB_DEVICE = Some(usb_dev);
-    }
-
-    
     // get PIO and state machine for i2c over PIO (since we only have 2 hw i2c drivers)
     let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
-    
+
     // set up pio i2c
     let mut cart_i2c = i2c_pio::I2C::new(
         &mut pio,
@@ -217,7 +154,7 @@ fn main() -> ! {
         sm0,
         100.kHz(),
         clocks.system_clock.freq(),
-    );//pac::pio, pac::
+    );
 
     // set up first hw i2c for first pendulum
     let top_sda = pins.gpio16.into_mode::<hal::gpio::FunctionI2C>();
@@ -263,8 +200,8 @@ fn main() -> ! {
     .exec(0x36u8, &mut [
         Operation::Write(&[0x0Eu8]),
         Operation::Read(&mut cart_offset),
-        ])
-        .expect("Failed to run all operations");
+    ])
+    .expect("Failed to run all operations");
     
     top_i2c.write_read(0x36, &[0x0Eu8], &mut top_offset).unwrap();
     end_i2c.write_read(0x36, &[0x0Eu8], &mut end_offset).unwrap();
@@ -276,31 +213,8 @@ fn main() -> ! {
     let timer = Timer::new(pac.TIMER, &mut pac.RESETS);
     let t0 = timer.get_counter();
     let mut prev = timer.get_counter();
-    
+
     let (oldc, oldt, olde) = (cart_pos, top_pos, end_pos);
-
-    unsafe {
-        CUR_POWER = Some(cur_power);
-        MODE = Some(mode);
-        K = Some(k);
-
-        CART_I2C =  Some(cart_i2c);
-        TOP_I2C =  Some(top_i2c);
-        END_I2C =  Some(end_i2c);
-
-        CART_ROTS =  Some(cart_rots);
-        TOP_ROTS =  Some(top_rots);
-        END_ROTS =  Some(end_rots);
-
-        CART_OFFSET =  Some(cart_offset);
-        TOP_OFFSET =  Some(top_offset);
-        END_OFFSET =  Some(end_offset);
-    }
-    
-    // Enable the USB interrupt
-    unsafe {
-        pac::NVIC::unmask(hal::pac::Interrupt::USBCTRL_IRQ);
-    };
 
     loop {
         if in_reset {
@@ -346,9 +260,7 @@ fn main() -> ! {
         if de > 3500 { end_rots -= 1; }
         else if de < -3500 { end_rots += 1; }
         
-        unsafe {
-            pos = [cart_pos+cart_rots*4096, top_pos+top_rots*4096, end_pos+end_rots*4096];
-        }
+        let pos = [cart_pos+cart_rots*4096, top_pos+top_rots*4096, end_pos+end_rots*4096];
 
         let dt_real = timer.get_counter().checked_duration_since(prev).unwrap().to_micros();
         if dt_real > 10_000 {
@@ -360,7 +272,8 @@ fn main() -> ! {
             );
             (oldvc, oldvt, oldve) = (pos[0], pos[1], pos[2]);
         }
-        state = [
+
+        let state = [
             pos[0] as f32 * 0.000029296875,
             pos[1] as f32 * 0.087890625,
             pos[2] as f32 * 0.087890625,
@@ -370,16 +283,71 @@ fn main() -> ! {
         ];
 
         // Check if we need to do usb stuff (aka did we receive a message)
-        
+        if usb_dev.poll(&mut [&mut serial]) {
+            let mut buf = [0u8; 5]; //format: 1 byte command, up to 4 bytes data
+            match serial.read(&mut buf) {
+                Ok(_) => {
+                    match buf[0] { //32767.5
+                        0 => {
+                            cur_power = ((u16::from_be_bytes([buf[1], buf[2]]) as f32 / 32767.5) - 1.0).get_duty(&basic_norm);
+                        },
+                        1 => {
+                            mode = match buf[1] {
+                                0 => CtrlMode::Local,
+                                1 => CtrlMode::USB,
+                                2 => CtrlMode::Pleb,
+                                _ => mode, // invalid, keep the same
+                            }
+                        }
+                        2..=8 => {
+                            k[(buf[0] as usize)-2] = f32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]);
+                        }
+                        9 => {    
+                            cart_i2c
+                                .exec(0x36u8, &mut [
+                                    Operation::Write(&[0x0Eu8]),
+                                    Operation::Read(&mut cart_offset),
+                                ])
+                                .expect("Failed to run all operations");
+                            top_i2c.write_read(0x36, &[0x0Eu8], &mut top_offset).unwrap();
+                            end_i2c.write_read(0x36, &[0x0Eu8], &mut end_offset).unwrap();
+                            cart_rots = 0;
+                            top_rots = 0;
+                            end_rots = 0;
+                        },
+                        10 => {
+                            let mut status = [0u8; 3];
+                            cart_i2c
+                                .exec(0x36u8, &mut [
+                                    Operation::Write(&[0x0Bu8]),
+                                    Operation::Read(&mut status[0..=0]),
+                                ])
+                                .expect("Failed to run all operations");
+                            top_i2c.write_read(0x36, &[0x0Bu8], &mut status[1..=1]).unwrap();
+                            end_i2c.write_read(0x36, &[0x0Bu8], &mut status[2..=2]).unwrap();
+                            let mut message: String<64> = String::new();
+                            // binl = lambda x: bin(x)[2:].rjust(8, '0')[::-1]
+                            write!(&mut message, "cart: {:08b}, top: {:08b}, end: {:08b}\n", status[0], status[1], status[2]).unwrap();
+                            let _ = serial.write(message.as_bytes());
+                        },
+                        _ => {},
+                    }
+                    let mut message: String<100> = String::new();
+                    write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", state[0], state[1], state[2], state[3], state[4], state[5]).unwrap();
+                    let _ = serial.write(message.as_bytes());
+                }
+                Err(_e) => {} // do nothing, idk what to do
+            }
+        }
         match mode {
             CtrlMode::Local => {
-                    cur_power = (
-                              state[0]*k[0] 
-                            + state[1]*k[1]
-                            + state[2]*k[2] 
-                            + state[3]*k[3] //2pi/4096 (radians/ticks) times 1_000_000 (us/s)
-                            + state[4]*k[4]
-                            + state[5]*k[5]
+                cur_power = (
+                                state[0]*k[0] 
+                              + state[1]*k[1]
+                              + state[2]*k[2] 
+                              + state[3]*k[3] //2pi/4096 (radians/ticks) times 1_000_000 (us/s)
+                              + state[4]*k[4]
+                              + state[5]*k[5]
                             ).get_duty(&basic_norm); //calibrated values for 0, -1, 1
             },
             CtrlMode::USB => {
@@ -401,89 +369,5 @@ fn main() -> ! {
         //     cur_power = 0.0.get_duty(&basic_norm);
         // }
         channel.set_duty(cur_power);
-    }
-}
-
-/// This function is called whenever the USB Hardware generates an Interrupt
-/// Request.
-///
-/// We do all our USB work under interrupt, so the main thread can continue on
-/// knowing nothing about USB.
-#[allow(non_snake_case)]
-#[interrupt]
-unsafe fn USBCTRL_IRQ() {
-    use core::sync::atomic::{AtomicBool, Ordering};
-
-    /// Note whether we've already printed the "hello" message.
-    static SAID_HELLO: AtomicBool = AtomicBool::new(false);
-
-    // Grab the global objects. This is OK as we only access them under interrupt.
-    let usb_dev = USB_DEVICE.as_mut().unwrap();
-    let serial = USB_SERIAL.as_mut().unwrap();
-    let pos = POS.as_mut().unwrap();
-    let state = STATE.as_mut().unwrap();
-
-    // Say hello exactly once on start-up
-    if !SAID_HELLO.load(Ordering::Relaxed) {
-        SAID_HELLO.store(true, Ordering::Relaxed);
-        let _ = serial.write(b"Hello, World!\r\n");
-    }
-
-    // Poll the USB driver with all of our supported USB Classes
-    if usb_dev.poll(&mut [serial]) {
-        let mut buf = [0u8; 5]; //format: 1 byte command, up to 4 bytes data
-        match serial.read(&mut buf) {
-            Ok(_) => {
-                match buf[0] { //32767.5
-                    0 => {
-                        *CUR_POWER.as_mut().unwrap() = ((u16::from_be_bytes([buf[1], buf[2]]) as f32 / 32767.5) - 1.0).get_duty(&basic_norm);
-                    },
-                    1 => {
-                        *MODE.as_mut().unwrap() = match buf[1] {
-                            0 => CtrlMode::Local,
-                            1 => CtrlMode::USB,
-                            2 => CtrlMode::Pleb,
-                            _ => mode, // invalid, keep the same
-                        }
-                    }
-                    2..=8 => {
-                        K.as_mut().unwrap()[(buf[0] as usize)-2] = f32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]);
-                    }
-                    9 => {    
-                        CART_I2C.as_mut().unwrap()
-                            .exec(0x36u8, &mut [
-                                Operation::Write(&[0x0Eu8]),
-                                Operation::Read(CART_OFFSET.as_mut().unwrap()),
-                            ])
-                            .expect("Failed to run all operations");
-                        TOP_I2C.as_mut().unwrap().write_read(0x36, &[0x0Eu8], TOP_OFFSET.as_mut().unwrap()).unwrap();
-                        END_I2C.as_mut().unwrap().write_read(0x36, &[0x0Eu8], END_OFFSET.as_mut().unwrap()).unwrap();
-                        *CART_ROTS.as_mut().unwrap() = 0;
-                        *TOP_ROTS.as_mut().unwrap() = 0;
-                        *END_ROTS.as_mut().unwrap() = 0;
-                    },
-                    10 => {
-                        let mut status = [0u8; 3];
-                        CART_I2C.as_mut().unwrap()
-                            .exec(0x36u8, &mut [
-                                Operation::Write(&[0x0Bu8]),
-                                Operation::Read(&mut status[0..=0]),
-                            ])
-                            .expect("Failed to run all operations");
-                        TOP_I2C.as_mut().unwrap().write_read(0x36, &[0x0Bu8], &mut status[1..=1]).unwrap();
-                        END_I2C.as_mut().unwrap().write_read(0x36, &[0x0Bu8], &mut status[2..=2]).unwrap();
-                        let mut message: String<64> = String::new();
-                        // binl = lambda x: bin(x)[2:].rjust(8, '0')[::-1]
-                        write!(&mut message, "cart: {:08b}, top: {:08b}, end: {:08b}\n", status[0], status[1], status[2]).unwrap();
-                        let _ = serial.write(message.as_bytes());
-                    },
-                    _ => {},
-                }
-                let mut message: String<100> = String::new();
-                write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", state[0], state[1], state[2], state[3], state[4], state[5]).unwrap();
-                let _ = serial.write(message.as_bytes());
-            }
-            Err(_e) => {} // do nothing, idk what to do
-        }
     }
 }
