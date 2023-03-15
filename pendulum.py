@@ -3,7 +3,8 @@ import serial
 from threading import Thread, Event
 from time import sleep
 import struct
-import sys
+from time import perf_counter_ns
+
 class Pendulum:
     def __init__(self, port = '/dev/tty.usbmodem00011'):
         """constructor for Pendulum
@@ -15,15 +16,17 @@ class Pendulum:
         self.y = np.zeros(6)
         self.pwr = 0
         self.modes = {'local':0, 'usb':1, 'pleb':2}
+        self.start = perf_counter_ns()
     def __enter__(self):
         """enter a context manager
 
         Returns:
             Pendulum: self object for context manager
         """
+        self.f = open('SI/data.txt', 'a')
         self.ser = serial.Serial(self.port, 115200)
         self.stop = Event()
-        self.track_thread = Thread(target = self._track, args = (self.ser, self.stop, sys.stdout))
+        self.track_thread = Thread(target = self._track, args = (self.ser, self.stop, self.f))
         self.track_thread.start()
         return self
     def __exit__(self, *args):
@@ -31,7 +34,9 @@ class Pendulum:
         """
         self.set(0)
         self.stop.set()
+        sleep(0.03)
         self.ser.close()
+        self.f.close()
     def _track(self, ser, stop_event, file = None):
         """tracks the encoder positions
 
@@ -47,7 +52,7 @@ class Pendulum:
                 self.y = np.array(str(ser.readline())[2:-3].split(','), dtype=float)
             except Exception as e:
                 print(e)
-            if not file is None: print([self.pwr]+list(map(lambda x: np.format_float_positional(x, 3), self.y)), end=',\n', file = file)
+            if not file is None: print([perf_counter_ns()-self.start, self.pwr]+list(map(lambda x: round(x, 5), self.y)), end=',\n', file = file)
     def set(self, power):
         """sets power to given value, accounting for deadband
 
@@ -86,11 +91,14 @@ class Pendulum:
     
 
 if __name__ == '__main__':
-    power = 0.2
+    power = 0.8
     delay = 0.2
+    with open('SI/data.txt', 'a') as f:
+        print('[', file = f)
     with Pendulum() as p:
         p.set(0)
         sleep(1)
+
         p.set(power)
         sleep(delay)
         p.set(-power)
@@ -99,8 +107,7 @@ if __name__ == '__main__':
         sleep(delay)
         p.set(-power)
         sleep(delay)
-        # p.set(0.15)
-        # sleep(1)
+
         p.set(0)
         sleep(2)
         # sleep(0.1)
@@ -110,3 +117,5 @@ if __name__ == '__main__':
         #     sleep(0.05)
         # p.set(0)
         # sleep(1)
+    with open('SI/data.txt', 'a') as f:
+        print('],', file = f)
