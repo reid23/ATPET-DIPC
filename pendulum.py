@@ -1,9 +1,12 @@
-import numpy as np
-import serial
-from threading import Thread, Event
-from time import sleep
 import struct
 import sys
+from threading import Event, Thread
+from time import sleep
+
+import numpy as np
+import serial
+
+
 class Pendulum:
     def __init__(self, port = '/dev/tty.usbmodem00011'):
         """constructor for Pendulum
