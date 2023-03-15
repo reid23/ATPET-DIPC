@@ -1,9 +1,10 @@
 import numpy as np
 import serial
-from threading import Thread, Event
-from time import sleep
 import struct
-from time import perf_counter_ns
+from threading import Event, Thread
+from time import sleep, perf_counter_ns
+
+
 
 class Pendulum:
     def __init__(self, port = '/dev/tty.usbmodem00011'):
