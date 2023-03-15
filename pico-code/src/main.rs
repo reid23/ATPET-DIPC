@@ -18,9 +18,7 @@ use embedded_hal::blocking::i2c::{Operation, Transactional}; // I2C HAL traits/t
 use embedded_hal::prelude::_embedded_hal_blocking_i2c_WriteRead; // actual i2c func
 use fugit::RateExtU32; // for .kHz() and similar
 use panic_halt as _; // make sure program halts on panic (need to mention crate for it to be linked)
-
 use rp_pico::hal::pac::interrupt;
-use crate::hal::pio::SM0;
 
 #[derive(Clone, Copy)]
 enum CtrlMode{
@@ -68,6 +66,7 @@ static mut MODE: Option<CtrlMode> = None;
 static mut CUR_POWER: Option<u16> = None;
 static mut K: Option<[f32; 6]> = None;
 static mut GET_STATUS_FLAG: Option<bool> = None;
+static mut IN_RESET: Option<bool> = None;
 // static mut CART_I2C: Option<i2c_pio::I2C<pac::PIO0, SM0, hal::gpio::pin::bank0::Gpio18, hal::gpio::pin::bank0::Gpio19>> = None;
 // static mut TOP_I2C: Option<hal::I2C<pac::I2C0, (Pin<hal::gpio::pin::bank0::Gpio16, hal::gpio::FunctionI2C>, Pin<hal::gpio::pin::bank0::Gpio17, hal::gpio::FunctionI2C>), hal::i2c::Controller>> = None;
 // static mut END_I2C: Option<hal::I2C<pac::I2C1, (Pin<hal::gpio::pin::bank0::Gpio14, hal::gpio::FunctionI2C>, Pin<hal::gpio::pin::bank0::Gpio15, hal::gpio::FunctionI2C>), hal::i2c::Controller>> = None;
@@ -154,7 +153,9 @@ fn main() -> ! {
     let mut led_pin = pins.led.into_push_pull_output();
 
     // pin to check limit switches
+    // let reset_pin = pins.gpio11.into_mode(hal::gpio::Interrupt::EdgeHigh);
     let reset_pin = pins.gpio11.into_pull_up_input();
+    reset_pin.set_interrupt_enabled(hal::gpio::Interrupt::EdgeHigh, true);
     let mut in_reset = false;
     // usb driver
     let usb_bus = UsbBusAllocator::new(hal::usb::UsbBus::new(
@@ -279,6 +280,7 @@ fn main() -> ! {
         CUR_POWER = Some(cur_power);
         MODE = Some(mode);
         K = Some(k);
+        IN_RESET = Some(in_reset);
 
         // CART_I2C =  Some(cart_i2c);
         // TOP_I2C =  Some(top_i2c);
@@ -296,6 +298,7 @@ fn main() -> ! {
     // Enable the USB interrupt
     unsafe {
         pac::NVIC::unmask(hal::pac::Interrupt::USBCTRL_IRQ);
+        pac::NVIC::unmask(hal::pac::Interrupt::IO_IRQ_BANK0);
     };
 
     loop {
@@ -307,7 +310,6 @@ fn main() -> ! {
             delay.delay_ms(500);
             continue;
         }
-        in_reset = reset_pin.is_low().unwrap();
 
         let mut cart = [0; 2];
         let mut top = [0; 2];
@@ -430,6 +432,7 @@ unsafe fn USBCTRL_IRQ() {
     // Grab the global objects. This is OK as we only access them under interrupt.
     let usb_dev = USB_DEVICE.as_mut().unwrap();
     let serial = USB_SERIAL.as_mut().unwrap();
+
     let pos = POS.as_mut().unwrap();
     let state = STATE.as_mut().unwrap();
     
@@ -443,7 +446,18 @@ unsafe fn USBCTRL_IRQ() {
 
     // Poll the USB driver with all of our supported USB Classes
     if usb_dev.poll(&mut [serial]) {
-        let mut buf = [0u8; 5]; //format: 1 byte command, up to 4 bytes data
+        let mut buf = [0, 91, 165, 0, 0]; //format: 1 byte command, up to 4 bytes data. Default command is set power to 0.
+        let in_reset = IN_RESET.as_mut().unwrap();
+        if *in_reset {
+            let _ = serial.read(&mut buf);
+            match buf[0] {
+                100 => {
+                    *in_reset = false;
+                }
+                _ => {} //don't do anything unless we get ok message
+            }
+            return;
+        }
         match serial.read(&mut buf) {
             Ok(_) => {
                 match buf[0] { //32767.5
@@ -483,4 +497,12 @@ unsafe fn USBCTRL_IRQ() {
             Err(_e) => {} // do nothing, idk what to do
         }
     }
+}
+
+#[interrupt]
+unsafe fn IO_IRQ_BANK0() {
+    *CUR_POWER.as_mut().unwrap() = 0.0.get_duty(&basic_norm);
+    *IN_RESET.as_mut().unwrap() = true;
+    USB_SERIAL.as_mut().unwrap().write(b"Limit Switch Triggered! Waiting for reset command.").unwrap();
+    
 }
