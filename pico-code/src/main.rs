@@ -6,26 +6,30 @@ use rp_pico::entry; // startup function macro
 use embedded_hal::PwmPin; // hardware pwm
 use embedded_hal::digital::v2::{OutputPin, InputPin}; 
 use rp_pico::hal::Timer;
-use rp_pico::hal::gpio::Pin;
+use rp_pico::hal::gpio::{Pin, PullUpInput};
+use rp_pico::hal::gpio::bank0::Gpio11;
 use rp_pico::hal::prelude::*;
 use rp_pico::hal::pac; // shorter pac alias
-use rp_pico::hal; // shorter hal alias
+use rp_pico::hal; use rp_pico::hal::timer::Alarm;
+// shorter hal alias
 use usb_device::{class_prelude::*, prelude::*}; // USB device emulation
 use usbd_serial::SerialPort; // more USB stuff
 use heapless::String; // bc we have no std
 use core::fmt::Write; // for printing
 use embedded_hal::blocking::i2c::{Operation, Transactional}; // I2C HAL traits/types
 use embedded_hal::prelude::_embedded_hal_blocking_i2c_WriteRead; // actual i2c func
-use fugit::RateExtU32; // for .kHz() and similar
+use fugit::{RateExtU32, ExtU32}; // for .kHz() and similar
 use panic_halt as _; // make sure program halts on panic (need to mention crate for it to be linked)
 use rp_pico::hal::pac::interrupt;
+use core::sync::atomic::{AtomicI32, AtomicU16, AtomicU8, AtomicBool, Ordering};
 
-#[derive(Clone, Copy)]
-enum CtrlMode{
-    Local,
-    USB,
-    Pleb,
-}
+
+// #[derive(Clone, Copy)]
+// enum CtrlMode{
+//     USB,   // 0
+//     Local, // 1
+//     Pleb,  // 2
+// }
 trait GetDuty{
     fn get_duty(&self, normalizer: &dyn Fn(&f32) -> Result<f32, &'static str>) -> u16;
 }
@@ -51,33 +55,20 @@ fn basic_norm(n: &f32) -> Result<f32, &'static str> {
 }
 
 #[allow(unused_variables)]
-fn pleb_fn(t: u64, cur_state: &[f32; 6]) -> Result<f32, &'static str>{
+fn pleb_fn(t: u64) -> Result<f32, &'static str>{
     //TODO: implement as needed
-    if cur_state[0] > 100.0 || cur_state[0] < -100.0 {
+    if (CART.load(Ordering::Relaxed).abs() as f32 * 0.00002929688) > 0.1 {
         Ok(0.2)
     } else {
         Ok(0.0)
     }
 }
 
-static mut POS: Option<[i32; 3]> = None;
-static mut STATE: Option<[f32; 6]> = None;
-static mut MODE: Option<CtrlMode> = None;
-static mut CUR_POWER: Option<u16> = None;
-static mut K: Option<[f32; 6]> = None;
-static mut GET_STATUS_FLAG: Option<bool> = None;
-static mut IN_RESET: Option<bool> = None;
-// static mut CART_I2C: Option<i2c_pio::I2C<pac::PIO0, SM0, hal::gpio::pin::bank0::Gpio18, hal::gpio::pin::bank0::Gpio19>> = None;
-// static mut TOP_I2C: Option<hal::I2C<pac::I2C0, (Pin<hal::gpio::pin::bank0::Gpio16, hal::gpio::FunctionI2C>, Pin<hal::gpio::pin::bank0::Gpio17, hal::gpio::FunctionI2C>), hal::i2c::Controller>> = None;
-// static mut END_I2C: Option<hal::I2C<pac::I2C1, (Pin<hal::gpio::pin::bank0::Gpio14, hal::gpio::FunctionI2C>, Pin<hal::gpio::pin::bank0::Gpio15, hal::gpio::FunctionI2C>), hal::i2c::Controller>> = None;
 
-static mut CART_ROTS: Option<i32> = None;
-static mut TOP_ROTS: Option<i32> = None;
-static mut END_ROTS: Option<i32> = None;
 
-static mut CART_OFFSET: Option<[u8; 2]> = None;
-static mut TOP_OFFSET: Option<[u8; 2]> = None;
-static mut END_OFFSET: Option<[u8; 2]> = None;
+static MODE: AtomicU8 = AtomicU8::new(0);
+static CUR_POWER: AtomicU16 = AtomicU16::new(0);
+static IN_RESET: AtomicBool = AtomicBool::new(false);
 
 /// The USB Device Driver (shared with the interrupt).
 static mut USB_DEVICE: Option<UsbDevice<hal::usb::UsbBus>> = None;
@@ -88,17 +79,42 @@ static mut USB_BUS: Option<UsbBusAllocator<hal::usb::UsbBus>> = None;
 /// The USB Serial Device Driver (shared with the interrupt).
 static mut USB_SERIAL: Option<SerialPort<hal::usb::UsbBus>> = None;
 
+static mut ALARM: Option<hal::timer::Alarm0> = None;
+
+static mut RESET_PIN: Option<Pin<Gpio11, PullUpInput>> = None;
+
+static OLD_VC: AtomicI32 = AtomicI32::new(0);
+static OLD_VT: AtomicI32 = AtomicI32::new(0);
+static OLD_VE: AtomicI32 = AtomicI32::new(0);
+
+static VC: AtomicI32 = AtomicI32::new(0);
+static VT: AtomicI32 = AtomicI32::new(0);
+static VE: AtomicI32 = AtomicI32::new(0);
+
+static CART: AtomicI32 = AtomicI32::new(0);
+static TOP: AtomicI32 = AtomicI32::new(0);
+static END: AtomicI32 = AtomicI32::new(0);
+
+static CART_OFFSET: AtomicI32 = AtomicI32::new(0);
+static TOP_OFFSET: AtomicI32 = AtomicI32::new(0);
+static END_OFFSET: AtomicI32 = AtomicI32::new(0);
+
+static CART_ROTS: AtomicI32 = AtomicI32::new(0);
+static TOP_ROTS: AtomicI32 = AtomicI32::new(0);
+static END_ROTS: AtomicI32 = AtomicI32::new(0);
+static K: [AtomicI32; 6] = [AtomicI32::new(0),
+                            AtomicI32::new(0),
+                            AtomicI32::new(0),
+                            AtomicI32::new(0),
+                            AtomicI32::new(0),
+                            AtomicI32::new(0)];
+
+const CART_M_PER_TICK: f32 = 0.12/4096.0;
+const RADS_PER_TICK: f32 = 2.0*3.14159265358979323/4096.0;
+
 
 #[entry]
 fn main() -> ! {
-    let mut pos: [i32; 3] = [0; 3];
-    let mut state: [f32; 6] = [0.0; 6];
-    let mut get_status_flag = false;
-    unsafe {
-        POS = Some(pos);
-        STATE = Some(state);
-        GET_STATUS_FLAG = Some(get_status_flag);
-    }
     // ok I have no clue what any of this next bit does, but 
     // its copied from the examples and it works I guess
     // Grab our singleton objects
@@ -156,7 +172,7 @@ fn main() -> ! {
     // let reset_pin = pins.gpio11.into_mode(hal::gpio::Interrupt::EdgeHigh);
     let reset_pin = pins.gpio11.into_pull_up_input();
     reset_pin.set_interrupt_enabled(hal::gpio::Interrupt::EdgeHigh, true);
-    let mut in_reset = false;
+    unsafe { RESET_PIN = Some(reset_pin); }
     // usb driver
     let usb_bus = UsbBusAllocator::new(hal::usb::UsbBus::new(
         pac.USBCTRL_REGS,
@@ -168,44 +184,38 @@ fn main() -> ! {
     
     // allow sleeping
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
-
+    
     // turn on the status LED to show the board isn't ded and all the setup worked (probably)
     led_pin.set_high().unwrap();
     channel.set_duty(0.0.get_duty(&basic_norm));
     
-    unsafe {
-        // Note (safety): This is safe as interrupts haven't been started yet
-        USB_BUS = Some(usb_bus);
-    }
-
+    // Note (safety): This is safe as interrupts haven't been started yet
+    unsafe { USB_BUS = Some(usb_bus); }
+    
     // Grab a reference to the USB Bus allocator. We are promising to the
     // compiler not to take mutable access to this global variable whilst this
     // reference exists!
     let bus_ref = unsafe { USB_BUS.as_ref().unwrap() };
-
+    
     // Set up the USB Communications Class Device driver
     let serial = SerialPort::new(bus_ref);
-    unsafe {
-        USB_SERIAL = Some(serial);
-    }
+    unsafe { USB_SERIAL = Some(serial); }
     
     // make this emulate a usb device
     let mut usb_dev = UsbDeviceBuilder::new(bus_ref, UsbVidPid(0x16c0, 0x27dd))
-        .manufacturer("Reid Dye")
-        .product("ATPET Inverted Pendulum")
-        .serial_number("0001")
-        .device_class(2) // from: https://www.usb.org/defined-class-codes
-        .build();
+    .manufacturer("Reid Dye")
+    .product("ATPET Inverted Pendulum")
+    .serial_number("0001")
+    .device_class(2) // from: https://www.usb.org/defined-class-codes
+    .build();
 
-    unsafe {
-        // Note (safety): This is safe as interrupts haven't been started yet
-        USB_DEVICE = Some(usb_dev);
-    }
+    // Note (safety): This is safe as interrupts haven't been started yet
+    unsafe { USB_DEVICE = Some(usb_dev); }
 
-    
+
     // get PIO and state machine for i2c over PIO (since we only have 2 hw i2c drivers)
     let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
-    
+
     // set up pio i2c
     let mut cart_i2c = i2c_pio::I2C::new(
         &mut pio,
@@ -227,7 +237,7 @@ fn main() -> ! {
         &mut pac.RESETS,
         &clocks.peripheral_clock,
     );
-    
+
     // set up second hw i2c for end pendulum
     let end_sda = pins.gpio14.into_mode::<hal::gpio::FunctionI2C>();
     let end_scl = pins.gpio15.into_mode::<hal::gpio::FunctionI2C>();
@@ -239,18 +249,17 @@ fn main() -> ! {
         &mut pac.RESETS,
         &clocks.peripheral_clock,
     );
-    
+
     channel.set_duty(0.0.get_duty(&basic_norm));
-    
+
     // init variables to track positions
     let (mut cart_pos, mut cart_rots) = (0, 0);
     let (mut top_pos, mut top_rots) = (0, 0);
     let (mut end_pos, mut end_rots) = (0, 0);
     let (mut dc, mut dt, mut de);
-    let (mut oldvc, mut oldvt, mut oldve) = (0,0,0);
-    let (mut vc, mut vt, mut ve) = (0f32,0f32,0f32);
-    
-    
+    let (mut oldc, mut oldt, mut olde) = (0,0,0);
+
+
     // offsets
     let mut cart_offset = [0; 2];
     let mut top_offset = [0; 2];
@@ -262,47 +271,31 @@ fn main() -> ! {
         Operation::Read(&mut cart_offset),
         ])
         .expect("Failed to run all operations");
-    
+
     top_i2c.write_read(0x36, &[0x0Eu8], &mut top_offset).unwrap();
     end_i2c.write_read(0x36, &[0x0Eu8], &mut end_offset).unwrap();
-    
-    let mut k = [0.0f32; 6];
-    let mut mode = CtrlMode::USB;
-    let mut cur_power = 0.0.get_duty(&basic_norm);
-    
-    let timer = Timer::new(pac.TIMER, &mut pac.RESETS);
+
+    let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS);
     let t0 = timer.get_counter();
-    let mut prev = timer.get_counter();
-    
-    let (oldc, oldt, olde) = (cart_pos, top_pos, end_pos);
+    let mut alarm0 = timer.alarm_0().unwrap();
+    alarm0.schedule(10_000.micros()).unwrap();
+    alarm0.enable_interrupt();
+    unsafe { ALARM = Some(alarm0); }
 
-    unsafe {
-        CUR_POWER = Some(cur_power);
-        MODE = Some(mode);
-        K = Some(k);
-        IN_RESET = Some(in_reset);
 
-        // CART_I2C =  Some(cart_i2c);
-        // TOP_I2C =  Some(top_i2c);
-        // END_I2C =  Some(end_i2c);
-
-        CART_ROTS =  Some(cart_rots);
-        TOP_ROTS =  Some(top_rots);
-        END_ROTS =  Some(end_rots);
-
-        CART_OFFSET =  Some(cart_offset);
-        TOP_OFFSET =  Some(top_offset);
-        END_OFFSET =  Some(end_offset);
-    }
-    
     // Enable the USB interrupt
     unsafe {
         pac::NVIC::unmask(hal::pac::Interrupt::USBCTRL_IRQ);
-        pac::NVIC::unmask(hal::pac::Interrupt::IO_IRQ_BANK0);
-    };
+        pac::NVIC::unmask(hal::pac::Interrupt::TIMER_IRQ_0);
+    }
+    unsafe { pac::NVIC::unmask(hal::pac::Interrupt::IO_IRQ_BANK0); }
+
+    // led_pin.set_low().unwrap();
+    // delay.delay_ms(1000);
+    // led_pin.set_high().unwrap();
 
     loop {
-        if in_reset {
+        if IN_RESET.load(Ordering::Relaxed) {
             channel.set_duty(0.0.get_duty(&basic_norm));
             led_pin.set_low().unwrap();
             delay.delay_ms(500);
@@ -315,21 +308,21 @@ fn main() -> ! {
         let mut top = [0; 2];
         let mut end = [0; 2];
 
-        if get_status_flag == true{
-            let mut status = [0u8; 3];
-            cart_i2c
-                .exec(0x36u8, &mut [
-                    Operation::Write(&[0x0Bu8]),
-                    Operation::Read(&mut status[0..=0]),
-                ])
-                .expect("Failed to run all operations");
-            top_i2c.write_read(0x36, &[0x0Bu8], &mut status[1..=1]).unwrap();
-            end_i2c.write_read(0x36, &[0x0Bu8], &mut status[2..=2]).unwrap();
-            let mut message: String<64> = String::new();
-            write!(&mut message, "cart: {:08b}, top: {:08b}, end: {:08b}\n", status[0], status[1], status[2]).unwrap();
-            // let _ = serial.write(message.as_bytes());
-            get_status_flag = false;
-        }
+        // if get_status_flag == true{
+        //     let mut status = [0u8; 3];
+        //     cart_i2c
+        //         .exec(0x36u8, &mut [
+        //             Operation::Write(&[0x0Bu8]),
+        //             Operation::Read(&mut status[0..=0]),
+        //         ])
+        //         .expect("Failed to run all operations");
+        //     top_i2c.write_read(0x36, &[0x0Bu8], &mut status[1..=1]).unwrap();
+        //     end_i2c.write_read(0x36, &[0x0Bu8], &mut status[2..=2]).unwrap();
+        //     let mut message: String<64> = String::new();
+        //     write!(&mut message, "cart: {:08b}, top: {:08b}, end: {:08b}\n", status[0], status[1], status[2]).unwrap();
+        //     // let _ = serial.write(message.as_bytes());
+        //     get_status_flag = false;
+        // }
         
         // first grab all three encoder positions
         cart_i2c
@@ -338,81 +331,74 @@ fn main() -> ! {
                 Operation::Read(&mut cart),
                 ])
             .unwrap();
-        
         top_i2c.write_read(0x36, &[0x0Eu8], &mut top).unwrap();
         end_i2c.write_read(0x36, &[0x0Eu8], &mut end).unwrap();
+
+        oldc = cart_pos;
+        oldt = top_pos;
+        olde = end_pos;
         // now update the positions
+        cart_pos = u16::from_be_bytes(cart) as i32;
+        top_pos = u16::from_be_bytes(top) as i32;
+        end_pos = u16::from_be_bytes(end) as i32;
+
         
-        (cart_pos, top_pos, end_pos) = (u16::from_be_bytes(cart) as i32 - u16::from_be_bytes(cart_offset) as i32, 
-                                        u16::from_be_bytes(top) as i32 - u16::from_be_bytes(top_offset) as i32, 
-                                        u16::from_be_bytes(end) as i32 - u16::from_be_bytes(end_offset) as i32);
         dc = cart_pos-oldc;
         dt = top_pos-oldt;
         de = end_pos-olde;
         
         // check if angle wrap happened
-        if dc > 3500 { cart_rots -= 1; }
-        else if dc < -3500 { cart_rots += 1; }
-        
-        if dt > 3500 { top_rots -= 1; }
-        else if dt < -3500 { top_rots += 1; }
-        
-        if de > 3500 { end_rots -= 1; }
-        else if de < -3500 { end_rots += 1; }
-        
-        pos = [cart_pos+cart_rots*4096, top_pos+top_rots*4096, end_pos+end_rots*4096];
+        cart_rots = CART_ROTS.load(Ordering::Relaxed);
+        top_rots = TOP_ROTS.load(Ordering::Relaxed);
+        end_rots = END_ROTS.load(Ordering::Relaxed);
 
-        let dt_real = timer.get_counter().checked_duration_since(prev).unwrap().to_micros();
-        if dt_real > 10_000 {
-            prev = timer.get_counter();
-            (vc, vt, ve) = (
-                (((pos[0]-oldvc) as f32)/(dt_real as f32)) * 29.296875, //0.120/4096 (meters/ticks) times 1_000_000 (us/s)
-                (((pos[1]-oldvt) as f32)/(dt_real as f32)) * 87890.625, //360/4096 (deg/ticks) times 1_000_000 (us/s)
-                (((pos[2]-oldve) as f32)/(dt_real as f32)) * 87890.625,
-            );
-            (oldvc, oldvt, oldve) = (pos[0], pos[1], pos[2]);
-        }
-        state = [
-            pos[0] as f32 * 0.000029296875,
-            pos[1] as f32 * 0.087890625,
-            pos[2] as f32 * 0.087890625,
-            vc,
-            vt,
-            ve,
-        ];
+        if dc > 3500 { CART_ROTS.store(cart_rots - 1, Ordering::Relaxed); cart_rots -= 1;}
+        else if dc < -3500 { CART_ROTS.store(cart_rots + 1, Ordering::Relaxed); cart_rots += 1;}
+        
+        if dt > 3500 { TOP_ROTS.store(top_rots - 1, Ordering::Relaxed); top_rots -= 1;}
+        else if dt < -3500 { TOP_ROTS.store(top_rots + 1, Ordering::Relaxed); top_rots += 1;}
+        
+        if de > 3500 { END_ROTS.store(end_rots - 1, Ordering::Relaxed); end_rots -= 1;}
+        else if de < -3500 { END_ROTS.store(end_rots + 1, Ordering::Relaxed); end_rots += 1;}
+        
+        let (c, t, e) = (cart_pos+cart_rots*4096, top_pos+top_rots*4096, end_pos+end_rots*4096);
+        CART.store(c, Ordering::Relaxed);
+        TOP.store(t, Ordering::Relaxed);
+        END.store(e, Ordering::Relaxed);
+
 
         // Check if we need to do usb stuff (aka did we receive a message)
-        
-        match mode {
-            CtrlMode::Local => {
-                    cur_power = (
-                              state[0]*k[0] 
-                            + state[1]*k[1]
-                            + state[2]*k[2] 
-                            + state[3]*k[3] //2pi/4096 (radians/ticks) times 1_000_000 (us/s)
-                            + state[4]*k[4]
-                            + state[5]*k[5]
-                            ).get_duty(&basic_norm); //calibrated values for 0, -1, 1
-            },
-            CtrlMode::USB => {
+
+        match MODE.load(Ordering::Relaxed) {
+            0 => {
+                //usb
                 //do nothing, we already set power above
             },
-            CtrlMode::Pleb => {
-                //TODO: implement this as needed
-                cur_power = pleb_fn(timer
-                                        .get_counter()
-                                        .checked_duration_since(t0)
-                                        .unwrap()
-                                        .to_micros(),
-                                    &state)
-                    .unwrap()
-                    .get_duty(&basic_norm);
+            1 => { //local
+                CUR_POWER.store((
+                          c as f32 * CART_M_PER_TICK * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
+                        + t as f32 * RADS_PER_TICK * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
+                        + e as f32 * RADS_PER_TICK * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
+                        + VC.load(Ordering::Relaxed) as f32 * CART_M_PER_TICK * 100.0 * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes()) //2pi/4096 (radians/ticks) times 1_000_000 (us/s)
+                        + VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 100.0 * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
+                        + VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 100.0 * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
+                ).get_duty(&basic_norm), Ordering::Relaxed); //calibrated values for 0, -1, 1
             },
+            2 => { //pleb
+                CUR_POWER.store(pleb_fn(timer
+                                    .get_counter()
+                                    .checked_duration_since(t0)
+                                    .unwrap()
+                                    .to_micros(),
+                                ).unwrap().get_duty(&basic_norm),
+                                Ordering::Relaxed);
+            },
+            _ => {}
         }
         // if state[0] > 0.8 || state[0] < -0.8 {
         //     cur_power = 0.0.get_duty(&basic_norm);
         // }
-        channel.set_duty(cur_power);
+        channel.set_duty(CUR_POWER.load(Ordering::Relaxed));
     }
 }
 
@@ -424,7 +410,7 @@ fn main() -> ! {
 #[allow(non_snake_case)]
 #[interrupt]
 unsafe fn USBCTRL_IRQ() {
-    use core::sync::atomic::{AtomicBool, Ordering};
+    use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
     /// Note whether we've already printed the "hello" message.
     static SAID_HELLO: AtomicBool = AtomicBool::new(false);
@@ -432,9 +418,6 @@ unsafe fn USBCTRL_IRQ() {
     // Grab the global objects. This is OK as we only access them under interrupt.
     let usb_dev = USB_DEVICE.as_mut().unwrap();
     let serial = USB_SERIAL.as_mut().unwrap();
-
-    let pos = POS.as_mut().unwrap();
-    let state = STATE.as_mut().unwrap();
     
     // let i2c
 
@@ -447,14 +430,19 @@ unsafe fn USBCTRL_IRQ() {
     // Poll the USB driver with all of our supported USB Classes
     if usb_dev.poll(&mut [serial]) {
         let mut buf = [0, 91, 165, 0, 0]; //format: 1 byte command, up to 4 bytes data. Default command is set power to 0.
-        let in_reset = IN_RESET.as_mut().unwrap();
-        if *in_reset {
-            let _ = serial.read(&mut buf);
-            match buf[0] {
-                100 => {
-                    *in_reset = false;
-                }
-                _ => {} //don't do anything unless we get ok message
+
+        if IN_RESET.load(Ordering::Relaxed) {
+            match serial.read(&mut buf) {
+                Ok(_) => match buf[0] {
+                    100 => {
+                        IN_RESET.store(false, Ordering::Relaxed);
+                        let _ = serial.write(b"Reset mode deactivated. Functionality restored.\n");
+                    }
+                    _ => {
+                        let _ = serial.write(b"System in reset. Send 01100100 to reactivate.\n");
+                    } //don't do anything unless we get ok message
+                },
+                Err(_) => {}
             }
             return;
         }
@@ -462,36 +450,37 @@ unsafe fn USBCTRL_IRQ() {
             Ok(_) => {
                 match buf[0] { //32767.5
                     0 => {
-                        *CUR_POWER.as_mut().unwrap() = ((u16::from_be_bytes([buf[1], buf[2]]) as f32 / 32767.5) - 1.0).get_duty(&basic_norm);
+                        CUR_POWER.store(((u16::from_be_bytes([buf[1], buf[2]]) as f32 / 32767.5) - 1.0).get_duty(&basic_norm), Ordering::Relaxed);
                     },
                     1 => {
-                        let mut mode = *MODE.as_mut().unwrap();
-                        // let mode = MODE.as_mut().unwrap();
-                        mode = match buf[1] {
-                            0 => CtrlMode::Local,
-                            1 => CtrlMode::USB,
-                            2 => CtrlMode::Pleb,
-                            _ => mode, // invalid, keep the same
-                        }
+                        MODE.store(buf[1], Ordering::Relaxed);
                     }
                     2..=8 => {
-                        K.as_mut().unwrap()[(buf[0] as usize)-2] = f32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]);
+                        K[(buf[0] as usize)-2].store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed);
                     }
                     9 => {    
-                        *CART_OFFSET.as_mut().unwrap() = ((pos[0]%4096) as u16).to_be_bytes();
-                        *TOP_OFFSET.as_mut().unwrap() = ((pos[1]%4096) as u16).to_be_bytes();
-                        *END_OFFSET.as_mut().unwrap() = ((pos[2]%4096) as u16).to_be_bytes();
-                        *CART_ROTS.as_mut().unwrap() = 0;
-                        *TOP_ROTS.as_mut().unwrap() = 0;
-                        *END_ROTS.as_mut().unwrap() = 0;
+                        CART_OFFSET.store(CART.load(Ordering::Relaxed), Ordering::Relaxed);
+                        TOP_OFFSET.store(TOP.load(Ordering::Relaxed), Ordering::Relaxed);
+                        END_OFFSET.store(END.load(Ordering::Relaxed), Ordering::Relaxed);
+                        
+                        CART_ROTS.store(0, Ordering::Relaxed);
+                        TOP_ROTS.store(0, Ordering::Relaxed);
+                        END_ROTS.store(0, Ordering::Relaxed);
                     },
                     10 => {
-                        *GET_STATUS_FLAG.as_mut().unwrap() = true;
+                        // *GET_STATUS_FLAG.as_mut().unwrap() = true;
                     },
                     _ => {},
                 }
                 let mut message: String<100> = String::new();
-                write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", state[0], state[1], state[2], state[3], state[4], state[5]).unwrap();
+                write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", 
+                    (CART.load(Ordering::Relaxed) - CART_OFFSET.load(Ordering::Relaxed)) as f32 * CART_M_PER_TICK, 
+                    (TOP.load(Ordering::Relaxed) -  TOP_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK, 
+                    (END.load(Ordering::Relaxed) -  END_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK, 
+                    VC.load(Ordering::Relaxed) as f32 * CART_M_PER_TICK * 20.0, 
+                    VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0, 
+                    VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0
+                ).unwrap();
                 let _ = serial.write(message.as_bytes());
             }
             Err(_e) => {} // do nothing, idk what to do
@@ -501,8 +490,32 @@ unsafe fn USBCTRL_IRQ() {
 
 #[interrupt]
 unsafe fn IO_IRQ_BANK0() {
-    *CUR_POWER.as_mut().unwrap() = 0.0.get_duty(&basic_norm);
-    *IN_RESET.as_mut().unwrap() = true;
-    USB_SERIAL.as_mut().unwrap().write(b"Limit Switch Triggered! Waiting for reset command.").unwrap();
-    
+    use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+
+    CUR_POWER.store(0.0.get_duty(&basic_norm), Ordering::Relaxed);
+    IN_RESET.store(true, Ordering::Relaxed);
+    USB_SERIAL.as_mut().unwrap().write(b"Limit Switch Triggered! Waiting for reset command.\n").unwrap();
+
+    RESET_PIN.as_mut().unwrap().clear_interrupt(hal::gpio::Interrupt::EdgeHigh);
+}
+
+#[interrupt]
+unsafe fn TIMER_IRQ_0() {
+    // use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+    let vc = OLD_VC.load(Ordering::Relaxed);
+    OLD_VC.store(CART.load(Ordering::Relaxed), Ordering::Relaxed);
+
+    let vt = OLD_VT.load(Ordering::Relaxed);
+    OLD_VT.store(TOP.load(Ordering::Relaxed), Ordering::Relaxed);
+
+    let ve = OLD_VE.load(Ordering::Relaxed);
+    OLD_VE.store(END.load(Ordering::Relaxed), Ordering::Relaxed);
+
+    VC.store(CART.load(Ordering::Relaxed) - vc, Ordering::Relaxed);
+    VT.store( TOP.load(Ordering::Relaxed) - vt, Ordering::Relaxed);
+    VE.store( END.load(Ordering::Relaxed) - ve, Ordering::Relaxed);
+
+    let alarm0 = ALARM.as_mut().unwrap();
+    alarm0.schedule(50_000.micros()).unwrap();
+    alarm0.clear_interrupt();
 }
