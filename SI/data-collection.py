@@ -94,7 +94,7 @@ class Pendulum:
     
 
 if __name__ == '__main__':
-    power = 1
+    power = 0.2
     delay = 0.2
     with open('SI/data3.txt', 'a') as f:
         print('[', file = f)
@@ -106,23 +106,17 @@ if __name__ == '__main__':
         sleep(delay)
         p.set(-power)
         sleep(delay)
-        # p.set(power)
-        # sleep(delay)
-        # p.set(-power)
-        # sleep(delay)
-        # p.set(power)
-        # sleep(delay)
-        # p.set(-power)
-        # sleep(delay)
+        p.set(power)
+        sleep(delay)
+        p.set(-power)
+        sleep(delay)
+        p.set(power)
+        sleep(delay)
+        p.set(-power)
+        sleep(delay)
 
         p.set(0)
         sleep(2)
-        # sleep(0.1)
-        # for i in range(-50, 50):
-        #     if i%5 == 0: print(i/50, p.y)
-        #     p.set(i/50)
-        #     sleep(0.05)
-        # p.set(0)
-        # sleep(1)
+
     with open('SI/data3.txt', 'a') as f:
         print('],', file = f)

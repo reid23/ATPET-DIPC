@@ -8,17 +8,21 @@ from scipy.interpolate import interp1d
 #%%
 with open('SI/data2.txt', 'r') as f:
     data = list(map(np.array, eval(f.read())))
+model = dipc_model()
 for i in range(len(data)):
-    data[i] = data[i][10:-10]
+    data[i] = data[i][10:-10, (0,1,2,3,5,6)]
     data[i][:, 0] -= data[i][0, 0]
     data[i][:, 0] *= 1e-9
+    model.K[f'FF{i}'] = lambda t: data[i][np.argmin(data[i][:, 0] - t), 1]
+    
 
 #%%
-model = dipc_model()
 def cost(consts):
     model.update_constants_and_relineaarize(consts)
-    for trial in data:
-        model.integrate_with_scipy(y_0 = trial[0, 2:], controller='FF')
+    # error = # figure out interpolation of data to get least squares error accumulation
+    for counter, trial in enumerate(data):
+        model.integrate_with_scipy(y_0 = trial[0, 2:], controller=f'FF{counter}')
+    
 
 # %%
 trials = len(data)
