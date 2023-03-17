@@ -295,19 +295,11 @@ fn main() -> ! {
     // led_pin.set_high().unwrap();
 
     loop {
-        if IN_RESET.load(Ordering::Relaxed) {
-            channel.set_duty(0.0.get_duty(&basic_norm));
-            led_pin.set_low().unwrap();
-            delay.delay_ms(500);
-            led_pin.set_high().unwrap();
-            delay.delay_ms(500);
-            continue;
-        }
-
+        
         let mut cart = [0; 2];
         let mut top = [0; 2];
         let mut end = [0; 2];
-
+        
         // if get_status_flag == true{
         //     let mut status = [0u8; 3];
         //     cart_i2c
@@ -332,7 +324,7 @@ fn main() -> ! {
                 ]);
         let _ = top_i2c.write_read(0x36, &[0x0Eu8], &mut top);
         let _ = end_i2c.write_read(0x36, &[0x0Eu8], &mut end);
-
+        
         oldc = cart_pos;
         oldt = top_pos;
         olde = end_pos;
@@ -340,7 +332,7 @@ fn main() -> ! {
         cart_pos = u16::from_be_bytes(cart) as i32;
         top_pos = u16::from_be_bytes(top) as i32;
         end_pos = u16::from_be_bytes(end) as i32;
-
+        
         
         dc = cart_pos-oldc;
         dt = top_pos-oldt;
@@ -350,7 +342,7 @@ fn main() -> ! {
         cart_rots = CART_ROTS.load(Ordering::Relaxed);
         top_rots = TOP_ROTS.load(Ordering::Relaxed);
         end_rots = END_ROTS.load(Ordering::Relaxed);
-
+        
         if dc > 3500 { CART_ROTS.store(cart_rots - 1, Ordering::Relaxed); cart_rots -= 1;}
         else if dc < -3500 { CART_ROTS.store(cart_rots + 1, Ordering::Relaxed); cart_rots += 1;}
         
@@ -364,10 +356,20 @@ fn main() -> ! {
         CART.store(c, Ordering::Relaxed);
         TOP.store(t, Ordering::Relaxed);
         END.store(e, Ordering::Relaxed);
-
-
+        
+        
+        if IN_RESET.load(Ordering::Relaxed) {
+            channel.set_duty(0.0.get_duty(&basic_norm));
+            led_pin.set_low().unwrap();
+            // delay.delay_ms(500);
+            // led_pin.set_high().unwrap();
+            // delay.delay_ms(500);
+            continue;
+        } else {
+            led_pin.set_high().unwrap();
+        }
         // Check if we need to do usb stuff (aka did we receive a message)
-
+        
         match MODE.load(Ordering::Relaxed) {
             0 => {
                 //usb

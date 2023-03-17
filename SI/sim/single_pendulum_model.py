@@ -34,36 +34,42 @@ import matplotlib.animation as animation
 
 
 class dipc_model:
-       #                                                            0.084            0.0007621
-                               # [lb,  c,              g,   ma,    mb,    IBzz] c=23.08014302
-    def __init__(self, constants=[0.3, 40.0645    , 9.80, 0.25, 0.125, 0.00065]):
+    def __init__(self, constants={
+            'L':  0.15, # length of pend com, in meters
+            'kF': 40, # coefficent of friction (N per m/s)
+            'g':  9.80, # shouldn't ever change
+            'ma': 0.125, # mass of cart (kg)
+            'mb': 0.125, # mass of pendulum (kg)
+            'kV': 1.74242, # constant for motor force proportional to voltage applied
+            'kW': 0.04926476 # constant for negative motor force proportional to speed of cart (m/s, just y[0])
+        }): 
         self.K = {}
-        self.constants = constants
+        self.constants = list(constants.values())
         self.y = dynamicsymbols('y:4')
         # y1, y3 is cart pos, vel
         # y2, y4 is pend ang, vel
-        self.lb, self.c, self.g, self.t = symbols('l_b, c, g, t')
+        self.l, self.kF, self.g, self.t = symbols('l, c, g, t')
         # l is first pend length
         # lcom is pos of COM from cart pivot joint of first pend (fraction of L)
         # c is friction of cart
         # g is gravity (positive)
         # t is time
 
-        self.ma, self.mb, self.IBzz = symbols('m_a, m_b, I_{Bzz}')
+        self.ma, self.mb = symbols('m_a, m_b')
         # ma is mass of cart
         # mb is mass of first pendulum
-        # mc is mass of end pendulum
-        # IBzz is the moment of inertia of the first pendulum
-        # moment of inertia of end pendulum is assumed to just come from mass at a radius
+
+        self.kV, self.kW = symbols('k_V, k_W')
+        # kV is voltage constant, kW is velocity constant (for motor force output)
+
 
         self.track = Body('N')
         self.cart = Body('C', mass=self.ma)
-        self.IB = inertia(self.cart.frame, 0, 0, self.IBzz)
-        self.top_pend = Body('P_1', mass=self.mb, central_inertia=self.IB)
+        self.top_pend = Body('P_1', mass=self.mb)
 
         self.slider = PrismaticJoint('slider', self.track, self.cart, coordinates=self.y[0], speeds=self.y[2])
         self.rev1 = PinJoint('r1', self.cart, self.top_pend, coordinates=self.y[1], speeds=self.y[3],
-                        child_axis=self.top_pend.z, child_joint_pos=self.lb*self.top_pend.y,
+                        child_axis=self.top_pend.z, child_joint_pos=self.l*self.top_pend.y,
                         parent_axis=self.cart.z)
 
         self.joints = (self.slider, self.rev1)
@@ -71,31 +77,35 @@ class dipc_model:
 
         self.F = dynamicsymbols('F')
         self.cart.apply_force(self.F*self.cart.x) # motor
-        self.cart.apply_force(-self.c*self.y[2]*self.cart.x, reaction_body=self.track) # friction
+        self.cart.apply_force(-self.kF*self.y[2]*self.track.x)# , reaction_body=self.track) # friction
 
         # gravity
-        self.cart.apply_force(-self.track.y*self.cart.mass*self.g)
+        # self.cart.apply_force(-self.track.y*self.cart.mass*self.g)
         self.top_pend.apply_force(-self.track.y*self.top_pend.mass*self.g)
 
         # get equations of motion
         self.method = JointsMethod(self.track, self.slider, self.rev1)
         self.method.form_eoms()
         self.ydot = self.method.rhs()
+    def update_constants_and_relineaarize(self, new_constants):
+        self.constants = new_constants
+        self.linearize().lambdify()
     def linearize(self, op_point=[0,sp.pi,0,0]):
         op_point=dict(zip(
-            self.y+[self.F,
-               self.lb,
-               self.c,
+            self.y+[
+               self.F,
+               self.l,
+               self.kF,
                self.g,
                self.ma,
                self.mb,
-               self.IBzz], 
-            op_point+[0]+self.constants))
-        self.A, self.B = self.method.method.to_linearizer().linearize(A_and_B=True, op_point=op_point)
+            ], 
+            op_point+[0]+self.constants[:-2]))
+        self.A, self.B = self.method.method.to_linearizer().linearize(A_and_B=True, simplify=True, op_point=op_point)
         self.A, self.B = np.array(self.A).astype(np.float64), np.array(self.B).astype(np.float64)
         return self
     def lambdify(self):
-        self.func = sp.lambdify([self.y, self.F, self.lb, self.c, self.g, self.ma, self.mb, self.IBzz], self.ydot, 'numpy')
+        self.func = sp.lambdify([self.y, self.F, self.l, self.kF, self.g, self.ma, self.mb], self.ydot, 'numpy')
         # self.func = sp.lambdify([self.y, self.F, self.lb, self.lc, self.lcom, self.c, self.g, self.ma, self.mb, self.mc, self.IBzz, self.ICzz], self.ydot, 'numpy')
         return self
     def construct_PP(self, eigs):
@@ -123,18 +133,25 @@ class dipc_model:
         #     ctrl = lambda t, e: dipc_model.ff_path[int(t*framerate)]
         # else:
         #     ctrl = lambda t, e: (-self.K[controller]@e)[0]
-        ctrl = lambda t, e: (-self.K[controller]@e)[0]
+        if controller == 'FF': 
+            ctrl = lambda t, dx: self.K[controller](t) * self.constants[-2] - self.constants[-1] * dx
+        else: 
+            ctrl = lambda t, e: (-self.K[controller]@e)[0]
 
+        # def func_for_scipy(t, x):
+        #     lag_buffer.append(x)
+        #     for counter, i in enumerate(target_timestamps[1:]):
+        #         if t<i:
+        #             forces.append([t, ctrl(t, lag_buffer.pop(0)-targets[counter])])
+        #             break
+        #         if i>target_timestamps[-1]: 
+        #             forces.append([t, 0]) # stop control.
+        #             lag_buffer.pop(0)
+        #     return self.func(x, forces[-1][1], *self.constants[:-2]).flatten() # forces[-1][1]
+        
         def func_for_scipy(t, x):
-            lag_buffer.append(x)
-            for counter, i in enumerate(target_timestamps[1:]):
-                if t<i:
-                    forces.append([t, ctrl(t, lag_buffer.pop(0)-targets[counter])])
-                    break
-                if i>target_timestamps[-1]: 
-                    forces.append([t, 0]) # stop control.
-                    lag_buffer.pop(0)
-            return self.func(x, forces[-1][1], *self.constants).flatten()
+            forces.append([t, ctrl(t, x[2])])
+            return self.func(x, forces[-1][1], *self.constants[:-2]).flatten()
 
         soln = solve_ivp(func_for_scipy, (0, tspan), y_0, t_eval = np.arange(0, tspan, 1/framerate))
         forces.sort(key = lambda x: x[0])
@@ -151,11 +168,11 @@ class dipc_model:
     def plot_animation(self, colors, times):
         num_frames = len(self.soln_y[0])
         fig, ax = plt.subplots()
-        mat, = ax.plot(*self.get_xy(self.soln_y[0, 0], self.soln_y[2,0], self.constants[0]), marker='o')
+        mat, = ax.plot(*self.get_xy(self.soln_y[0, 0], self.soln_y[1, 0], self.constants[0]), marker='o')
         time_label = ax.text(0, -0.6, '0')
         num_frames = len(self.soln_y[0])
         def animate(i):
-            mat.set_data(self.get_xy(*(self.soln_y[(0, 2), i%(num_frames+30)-30 if i%(num_frames+30) > 29 else 0]), self.constants[0]))
+            mat.set_data(self.get_xy(*(self.soln_y[(0, 1), i%(num_frames+30)-30 if i%(num_frames+30) > 29 else 0]), self.constants[0]))
             time_label.set_text(f't={round((i%(num_frames+30)-30)/60, 4)}')
             for counter, t in enumerate(times[1:]):
                 if t*60 - 10 < i < t*60 + 10:
@@ -210,11 +227,17 @@ if __name__ == '__main__':
     R = np.diag([10])
     model = dipc_model().linearize().lambdify()
     print(repr(model.A), '\n\n', repr(model.B))
-    model.construct_PP(eigs).construct_LQR(Q, R).integrate_with_scipy(
-        y_0 = [0, (1/8)*np.pi, 0, 0], 
+    model.construct_PP(eigs).construct_LQR(Q, R)
+    print(model.get_eigs('PP')[0])
+    print(model.B@model.K['PP'])
+    # print(model.K['PP'])
+    model.integrate_with_scipy(
+        y_0 = [0, (7/8)*np.pi, 0, 0], 
         targets = np.array([[  0, np.pi, 0, 0],
                             [0.5, np.pi, 0, 0]]),
-                            controller = 'LQR', lag_seconds=0.05)
+                            controller = 'PP', lag_seconds=0.0165)
+    
+    print(model.soln_y[:, :10].T)
     # model.print_eoms()
     # normal = model.ydot.subs(zip([model.lb, model.c, model.g, model.ma, model.mb, model.IBzz], model.constants))
     # print(normal)

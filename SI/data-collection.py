@@ -96,9 +96,9 @@ class Pendulum:
 if __name__ == '__main__':
     power = 1
     delay = 0.2
-    with open('SI/data2.txt', 'a') as f:
+    with open('SI/data3.txt', 'a') as f:
         print('[', file = f)
-    with Pendulum(file = 'SI/data2.txt') as p:
+    with Pendulum(file = 'SI/data3.txt') as p:
         p.set(0)
         sleep(1)
 
@@ -106,14 +106,14 @@ if __name__ == '__main__':
         sleep(delay)
         p.set(-power)
         sleep(delay)
-        p.set(power)
-        sleep(delay)
-        p.set(-power)
-        sleep(delay)
-        p.set(power)
-        sleep(delay)
-        p.set(-power)
-        sleep(delay)
+        # p.set(power)
+        # sleep(delay)
+        # p.set(-power)
+        # sleep(delay)
+        # p.set(power)
+        # sleep(delay)
+        # p.set(-power)
+        # sleep(delay)
 
         p.set(0)
         sleep(2)
@@ -124,5 +124,5 @@ if __name__ == '__main__':
         #     sleep(0.05)
         # p.set(0)
         # sleep(1)
-    with open('SI/data2.txt', 'a') as f:
+    with open('SI/data3.txt', 'a') as f:
         print('],', file = f)

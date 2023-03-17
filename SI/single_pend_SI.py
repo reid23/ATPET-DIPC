@@ -2,12 +2,26 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+from sim.single_pendulum_model import dipc_model
+from scipy.optimize import minimize, curve_fit
+from scipy.interpolate import interp1d
 #%%
 with open('SI/data2.txt', 'r') as f:
     data = list(map(np.array, eval(f.read())))
+for i in range(len(data)):
+    data[i] = data[i][10:-10]
+    data[i][:, 0] -= data[i][0, 0]
+    data[i][:, 0] *= 1e-9
+
+#%%
+model = dipc_model()
+def cost(consts):
+    model.update_constants_and_relineaarize(consts)
+    for trial in data:
+        model.integrate_with_scipy(y_0 = trial[0, 2:], controller='FF')
 
 # %%
-trials = 7
+trials = len(data)
 fig, ax = plt.subplots(trials, 2, sharex=True)
 fig.suptitle("Pendulum Angle and Velocity vs. Time (s)")
 ax[0][0].set_title("Position (rad)")
@@ -47,6 +61,7 @@ except:
 # but this gives me confidence at least that the general form is
 # F = k_V(V_applied) - k_W(x')
 
+# oh also oops this assumes voltage varies from 0..1, it's really 0..12, so k_V = 1.74242
 
 # Constants are:
 #   k_V
