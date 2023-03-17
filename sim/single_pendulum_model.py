@@ -33,11 +33,6 @@ import matplotlib.animation as animation
 # print(np.linalg.matrix_rank(ct.ctrb(A, B))==6) #this should be 6 since we have 6 degrees of freedom
 
 
-# func = sp.lambdify([y, F, lb, lc, lcom, c, g, ma, mb, mc, IBzz, ICzz], ydot)
-#%%
-# @njit
-def eval_fourier(t, weights):
-    return np.array([1]+[np.cos(n*t) for n in range(1, 50)]+[np.sin(n*t) for n in range(1, 50)])@weights
 class dipc_model:
        #                                                            0.084            0.0007621
                                # [lb,  c,              g,   ma,    mb,    IBzz] c=23.08014302
@@ -76,7 +71,7 @@ class dipc_model:
 
         self.F = dynamicsymbols('F')
         self.cart.apply_force(self.F*self.cart.x) # motor
-        self.cart.apply_force(-self.c*(self.y[2])*self.cart.x, reaction_body=self.track) # friction
+        self.cart.apply_force(-self.c*self.y[2]*self.cart.x, reaction_body=self.track) # friction
 
         # gravity
         self.cart.apply_force(-self.track.y*self.cart.mass*self.g)
@@ -216,7 +211,7 @@ if __name__ == '__main__':
     model = dipc_model().linearize().lambdify()
     print(repr(model.A), '\n\n', repr(model.B))
     model.construct_PP(eigs).construct_LQR(Q, R).integrate_with_scipy(
-        y_0 = [0, (7.5/8)*np.pi, 0, 0], 
+        y_0 = [0, (1/8)*np.pi, 0, 0], 
         targets = np.array([[  0, np.pi, 0, 0],
                             [0.5, np.pi, 0, 0]]),
                             controller = 'LQR', lag_seconds=0.05)

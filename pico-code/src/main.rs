@@ -325,14 +325,13 @@ fn main() -> ! {
         // }
         
         // first grab all three encoder positions
-        cart_i2c
+        let _ = cart_i2c
             .exec(0x36u8, &mut [
                 Operation::Write(&[0x0Eu8]),
                 Operation::Read(&mut cart),
-                ])
-            .unwrap();
-        top_i2c.write_read(0x36, &[0x0Eu8], &mut top).unwrap();
-        end_i2c.write_read(0x36, &[0x0Eu8], &mut end).unwrap();
+                ]);
+        let _ = top_i2c.write_read(0x36, &[0x0Eu8], &mut top);
+        let _ = end_i2c.write_read(0x36, &[0x0Eu8], &mut end);
 
         oldc = cart_pos;
         oldt = top_pos;
@@ -390,7 +389,7 @@ fn main() -> ! {
                                     .checked_duration_since(t0)
                                     .unwrap()
                                     .to_micros(),
-                                ).unwrap().get_duty(&basic_norm),
+                                ).unwrap_or(0.0).get_duty(&basic_norm),
                                 Ordering::Relaxed);
             },
             _ => {}
@@ -444,21 +443,10 @@ unsafe fn USBCTRL_IRQ() {
                 },
                 Err(_) => {}
             }
-            return;
-        }
-        match serial.read(&mut buf) {
-            Ok(_) => {
-                match buf[0] { //32767.5
-                    0 => {
-                        CUR_POWER.store(((u16::from_be_bytes([buf[1], buf[2]]) as f32 / 32767.5) - 1.0).get_duty(&basic_norm), Ordering::Relaxed);
-                    },
-                    1 => {
-                        MODE.store(buf[1], Ordering::Relaxed);
-                    }
-                    2..=8 => {
-                        K[(buf[0] as usize)-2].store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed);
-                    }
-                    9 => {    
+        } else {
+            match serial.read(&mut buf) {
+                Ok(1) => {
+                    if buf[0] == 9 {
                         CART_OFFSET.store(CART.load(Ordering::Relaxed), Ordering::Relaxed);
                         TOP_OFFSET.store(TOP.load(Ordering::Relaxed), Ordering::Relaxed);
                         END_OFFSET.store(END.load(Ordering::Relaxed), Ordering::Relaxed);
@@ -466,37 +454,50 @@ unsafe fn USBCTRL_IRQ() {
                         CART_ROTS.store(0, Ordering::Relaxed);
                         TOP_ROTS.store(0, Ordering::Relaxed);
                         END_ROTS.store(0, Ordering::Relaxed);
-                    },
-                    10 => {
-                        // *GET_STATUS_FLAG.as_mut().unwrap() = true;
-                    },
-                    _ => {},
+                    }
+                },
+                Ok(_) => {
+                    match buf[0] { //32767.5
+                        0 => {
+                            CUR_POWER.store(((u16::from_be_bytes([buf[1], buf[2]]) as f32 / 32767.5) - 1.0).get_duty(&basic_norm), Ordering::Relaxed);
+                        },
+                        1 => {
+                            MODE.store(buf[1], Ordering::Relaxed);
+                        }
+                        2..=8 => {
+                            K[(buf[0] as usize)-2].store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed);
+                        }
+                        10 => {
+                            // *GET_STATUS_FLAG.as_mut().unwrap() = true;
+                        },
+                        _ => {},
+                    }
+                    let mut message: String<100> = String::new();
+                    let _ = write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", 
+                        (CART.load(Ordering::Relaxed) - CART_OFFSET.load(Ordering::Relaxed)) as f32 * CART_M_PER_TICK, 
+                        (TOP.load(Ordering::Relaxed) -  TOP_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK, 
+                        (END.load(Ordering::Relaxed) -  END_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK, 
+                        VC.load(Ordering::Relaxed) as f32 * CART_M_PER_TICK * 20.0, 
+                        VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0, 
+                        VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0
+                    );
+                    let _ = serial.write(message.as_bytes());
                 }
-                let mut message: String<100> = String::new();
-                write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", 
-                    (CART.load(Ordering::Relaxed) - CART_OFFSET.load(Ordering::Relaxed)) as f32 * CART_M_PER_TICK, 
-                    (TOP.load(Ordering::Relaxed) -  TOP_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK, 
-                    (END.load(Ordering::Relaxed) -  END_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK, 
-                    VC.load(Ordering::Relaxed) as f32 * CART_M_PER_TICK * 20.0, 
-                    VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0, 
-                    VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0
-                ).unwrap();
-                let _ = serial.write(message.as_bytes());
+                Err(_e) => {} // do nothing, idk what to do
             }
-            Err(_e) => {} // do nothing, idk what to do
         }
     }
 }
 
 #[interrupt]
 unsafe fn IO_IRQ_BANK0() {
-    use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-
     CUR_POWER.store(0.0.get_duty(&basic_norm), Ordering::Relaxed);
     IN_RESET.store(true, Ordering::Relaxed);
-    USB_SERIAL.as_mut().unwrap().write(b"Limit Switch Triggered! Waiting for reset command.\n").unwrap();
-
-    RESET_PIN.as_mut().unwrap().clear_interrupt(hal::gpio::Interrupt::EdgeHigh);
+    // USB_SERIAL.as_mut().unwrap().write(b"Limit Switch Triggered! Waiting for reset command.\n").unwrap();
+    match RESET_PIN.as_mut() {
+        Some(reset_pin) => {reset_pin.clear_interrupt(hal::gpio::Interrupt::EdgeHigh)},
+        None => {}
+    }
 }
 
 #[interrupt]
@@ -516,6 +517,6 @@ unsafe fn TIMER_IRQ_0() {
     VE.store( END.load(Ordering::Relaxed) - ve, Ordering::Relaxed);
 
     let alarm0 = ALARM.as_mut().unwrap();
-    alarm0.schedule(50_000.micros()).unwrap();
+    let _ = alarm0.schedule(50_000.micros());
     alarm0.clear_interrupt();
 }

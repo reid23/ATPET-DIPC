@@ -3,17 +3,18 @@ import serial
 import struct
 from threading import Event, Thread
 from time import sleep, perf_counter_ns
-
+import sys
 
 
 class Pendulum:
-    def __init__(self, port = '/dev/tty.usbmodem00011'):
+    def __init__(self, port = '/dev/tty.usbmodem00011', file = 'SI/data.txt'):
         """constructor for Pendulum
 
         Args:
             port (str, optional): serial port to connect to. Defaults to '/dev/tty.usbmodem00011'.
         """
         self.port = port
+        self.file = file
         self.y = np.zeros(6)
         self.pwr = 0
         self.modes = {'local':0, 'usb':1, 'pleb':2}
@@ -24,8 +25,9 @@ class Pendulum:
         Returns:
             Pendulum: self object for context manager
         """
-        self.f = open('SI/data.txt', 'a')
+        self.f = open(self.file, 'a')
         self.ser = serial.Serial(self.port, 115200)
+        self.ser.write(bytearray([100]))
         self.stop = Event()
         self.track_thread = Thread(target = self._track, args = (self.ser, self.stop, self.f))
         self.track_thread.start()
@@ -92,14 +94,18 @@ class Pendulum:
     
 
 if __name__ == '__main__':
-    power = 0.8
+    power = 1
     delay = 0.2
-    with open('SI/data.txt', 'a') as f:
+    with open('SI/data2.txt', 'a') as f:
         print('[', file = f)
-    with Pendulum() as p:
+    with Pendulum(file = 'SI/data2.txt') as p:
         p.set(0)
         sleep(1)
 
+        p.set(power)
+        sleep(delay)
+        p.set(-power)
+        sleep(delay)
         p.set(power)
         sleep(delay)
         p.set(-power)
@@ -118,5 +124,5 @@ if __name__ == '__main__':
         #     sleep(0.05)
         # p.set(0)
         # sleep(1)
-    with open('SI/data.txt', 'a') as f:
+    with open('SI/data2.txt', 'a') as f:
         print('],', file = f)
