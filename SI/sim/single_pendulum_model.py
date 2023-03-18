@@ -34,7 +34,7 @@ import matplotlib.animation as animation
 
 
 class dipc_model:
-    def __init__(self, constants={
+    def __init__(self, constants={ # [0.15, 40, 9.8, 0.125, 0.125, 1.74242, 0.04926476]
             'L':  0.15, # length of pend com, in meters
             'kF': 40, # coefficent of friction (N per m/s)
             'g':  9.80, # shouldn't ever change
@@ -123,7 +123,9 @@ class dipc_model:
                             tspan=15,
                             framerate=60,
                             lag_seconds=0.25,
-                            controller='LQR',):
+                            controller='LQR',
+                            t_eval = None,
+                            remember_forces = False):
 
         lag_buffer = [y_0]*int(framerate*lag_seconds)
         forces = []
@@ -133,10 +135,10 @@ class dipc_model:
         #     ctrl = lambda t, e: dipc_model.ff_path[int(t*framerate)]
         # else:
         #     ctrl = lambda t, e: (-self.K[controller]@e)[0]
-        if controller == 'FF': 
-            ctrl = lambda t, dx: self.K[controller](t) * self.constants[-2] - self.constants[-1] * dx
-        else: 
+        if isinstance(controller, str): 
             ctrl = lambda t, e: (-self.K[controller]@e)[0]
+        else: 
+            ctrl = lambda t, dx: controller(t) * self.constants[-2] - self.constants[-1] * dx
 
         # def func_for_scipy(t, x):
         #     lag_buffer.append(x)
@@ -150,12 +152,17 @@ class dipc_model:
         #     return self.func(x, forces[-1][1], *self.constants[:-2]).flatten() # forces[-1][1]
         
         def func_for_scipy(t, x):
-            forces.append([t, ctrl(t, x[2])])
-            return self.func(x, forces[-1][1], *self.constants[:-2]).flatten()
-
-        soln = solve_ivp(func_for_scipy, (0, tspan), y_0, t_eval = np.arange(0, tspan, 1/framerate))
-        forces.sort(key = lambda x: x[0])
-        self.soln_t, self.soln_y, self.soln_forces = soln.t, soln.y, np.array(forces)
+            if remember_forces:
+                forces.append([t, ctrl(t, x[2])])
+                return self.func(x, forces[-1][1], *self.constants[:-2]).flatten()
+            else:
+                return self.func(x, ctrl(t, x[2]), *self.constants[:-2]).flatten()
+        soln = solve_ivp(func_for_scipy, (0, tspan), y_0, t_eval = t_eval if not (t_eval is None) else np.arange(0, tspan, 1/framerate))
+        if remember_forces:
+            forces.sort(key = lambda x: x[0])
+            self.soln_t, self.soln_y, self.soln_forces = soln.t, soln.y, np.array(forces)
+        else:
+            self.soln_t, self.soln_y = soln.t, soln.y
         return self
     def plot_graph(self):
         plt.plot(self.soln_t, self.soln_y[0], label='$x$ (m)')

@@ -5,25 +5,36 @@ import matplotlib.ticker as ticker
 from sim.single_pendulum_model import dipc_model
 from scipy.optimize import minimize, curve_fit
 from scipy.interpolate import interp1d
+from numba import njit
 #%%
-with open('SI/data2.txt', 'r') as f:
+with open('data3.txt', 'r') as f:
     data = list(map(np.array, eval(f.read())))
 model = dipc_model()
 for i in range(len(data)):
     data[i] = data[i][10:-10, (0,1,2,3,5,6)]
     data[i][:, 0] -= data[i][0, 0]
     data[i][:, 0] *= 1e-9
-    model.K[f'FF{i}'] = lambda t: data[i][np.argmin(data[i][:, 0] - t), 1]
+
+@njit
+def powers(t, j):
+    return data[j][np.argmin(np.abs(data[j][:, 0] - t)), 1]
+
+# powers = lambda t, j: data[j][np.argmin(np.abs(data[j][:, 0] - t)), 1]
     
 
 #%%
 def cost(consts):
     model.update_constants_and_relineaarize(consts)
     # error = # figure out interpolation of data to get least squares error accumulation
+    error = 0
     for counter, trial in enumerate(data):
-        model.integrate_with_scipy(y_0 = trial[0, 2:], controller=f'FF{counter}')
-    
-
+        model.integrate_with_scipy(y_0 = trial[0, 2:], controller=lambda t: powers(t, counter), tspan = max(trial[:, 0]), t_eval=trial[:, 0])
+        error += np.linalg.norm(np.linalg.norm(model.soln_y.T - trial[:, 2:], axis=1))
+    return error
+#%%
+print(cost([0.15, 40, 9.8, 0.125, 0.125, 1.74242, 0.04926476]))
+#%%
+minimize(fun = cost, x0 = [0.15, 40, 9.8, 0.125, 0.125, 1.74242, 0.04926476])
 # %%
 trials = len(data)
 fig, ax = plt.subplots(trials, 2, sharex=True)
