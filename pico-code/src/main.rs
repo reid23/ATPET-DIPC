@@ -299,7 +299,6 @@ fn main() -> ! {
         let mut cart = [0; 2];
         let mut top = [0; 2];
         let mut end = [0; 2];
-        
         // if get_status_flag == true{
         //     let mut status = [0u8; 3];
         //     cart_i2c
@@ -325,6 +324,10 @@ fn main() -> ! {
         let _ = top_i2c.write_read(0x36, &[0x0Eu8], &mut top);
         let _ = end_i2c.write_read(0x36, &[0x0Eu8], &mut end);
         
+        if u16::from_be_bytes(cart) > 4096 || 
+           u16::from_be_bytes(top)  > 4096 || 
+           u16::from_be_bytes(end)  > 4096 { continue; }
+        
         oldc = cart_pos;
         oldt = top_pos;
         olde = end_pos;
@@ -333,7 +336,7 @@ fn main() -> ! {
         top_pos = u16::from_be_bytes(top) as i32;
         end_pos = u16::from_be_bytes(end) as i32;
         
-        
+
         dc = cart_pos-oldc;
         dt = top_pos-oldt;
         de = end_pos-olde;
@@ -343,14 +346,14 @@ fn main() -> ! {
         top_rots = TOP_ROTS.load(Ordering::Relaxed);
         end_rots = END_ROTS.load(Ordering::Relaxed);
         
-        if dc > 3500 { CART_ROTS.store(cart_rots - 1, Ordering::Relaxed); cart_rots -= 1;}
-        else if dc < -3500 { CART_ROTS.store(cart_rots + 1, Ordering::Relaxed); cart_rots += 1;}
+        if dc > 3500 && dc <= 4096 { CART_ROTS.store(cart_rots - 1, Ordering::Relaxed); cart_rots -= 1;}
+        else if dc < -3500 && dc >= -4096 { CART_ROTS.store(cart_rots + 1, Ordering::Relaxed); cart_rots += 1;}
         
-        if dt > 3500 { TOP_ROTS.store(top_rots - 1, Ordering::Relaxed); top_rots -= 1;}
-        else if dt < -3500 { TOP_ROTS.store(top_rots + 1, Ordering::Relaxed); top_rots += 1;}
+        if dt > 3500 && dt <= 4096 { TOP_ROTS.store(top_rots - 1, Ordering::Relaxed); top_rots -= 1;}
+        else if dt < -3500 && dt >= -4096 { TOP_ROTS.store(top_rots + 1, Ordering::Relaxed); top_rots += 1;}
         
-        if de > 3500 { END_ROTS.store(end_rots - 1, Ordering::Relaxed); end_rots -= 1;}
-        else if de < -3500 { END_ROTS.store(end_rots + 1, Ordering::Relaxed); end_rots += 1;}
+        if de > 3500 && de <= 4096 { END_ROTS.store(end_rots - 1, Ordering::Relaxed); end_rots -= 1;}
+        else if de < -3500 && de >= -4096 { END_ROTS.store(end_rots + 1, Ordering::Relaxed); end_rots += 1;}
         
         let (c, t, e) = (cart_pos+cart_rots*4096, top_pos+top_rots*4096, end_pos+end_rots*4096);
         CART.store(c, Ordering::Relaxed);

@@ -9,56 +9,127 @@ from numba import njit
 #%%
 with open('data3.txt', 'r') as f:
     data = list(map(np.array, eval(f.read())))
+for i in [4,5,6,7,8,9,24,25][::-1]: # delete bad data
+    data.pop(i)
 model = dipc_model()
+interpolators = []
+powers = []
 for i in range(len(data)):
     data[i] = data[i][10:-10, (0,1,2,3,5,6)]
     data[i][:, 0] -= data[i][0, 0]
     data[i][:, 0] *= 1e-9
+    powers.append(np.array(data[i][:, :2]))
+    deletions = 0
+    for j in range(len(data[i])):
+        if powers[-1][j-deletions, 1] == powers[-1][j-1-deletions, 1]:
+            powers[-1] = np.delete(powers[-1], j-deletions, axis=0) 
+            deletions += 1
 
-@njit
-def powers(t, j):
-    return data[j][np.argmin(np.abs(data[j][:, 0] - t)), 1]
+    for j in range(1, len(data[i])-1):
+        if np.abs(data[i][j, 3] - data[i][j-1, 3])>1:
+            print('here', i, j)
+            data[i][j, 3] = (data[i][j+1, 3] + data[i][j-1, 3])/2
 
-# powers = lambda t, j: data[j][np.argmin(np.abs(data[j][:, 0] - t)), 1]
-    
 
 #%%
+
+@njit
+def powers1(t, data):
+    return data[np.argmin(np.abs(data[:, 0] - t)), 1]
+
+
+def powers2(t, j):
+    return data[j][np.argmin(np.abs(data[j][:, 0] - t)), 1]
+
+@njit
+def powers3(t, powers):
+    # print(powers[np.searchsorted(powers[:, 0], t)-1, 1])
+    return powers[np.searchsorted(powers[:, 0], t)-1, 1]
+
+
+def f(t, *consts):
+    if model.constants != consts:
+        model.update_constants_and_relinearize(consts)
+        model.integrate_with_scipy(y_0 = data[19][0, 2:], controller=lambda t: powers2(t, 19), tspan = max(data[19][:, 0]), t_eval = data[i][:, 0])
+    print((model.soln(t).T))
+    return np.array(model.soln(t)).T
+
+#%%
+from time import perf_counter
 def cost(consts):
-    model.update_constants_and_relineaarize(consts)
+    model.update_constants_and_relinearize(consts)
     # error = # figure out interpolation of data to get least squares error accumulation
     error = 0
     for counter, trial in enumerate(data):
-        model.integrate_with_scipy(y_0 = trial[0, 2:], controller=lambda t: powers(t, counter), tspan = max(trial[:, 0]), t_eval=trial[:, 0])
-        error += np.linalg.norm(np.linalg.norm(model.soln_y.T - trial[:, 2:], axis=1))
+        model.integrate_with_scipy(y_0 = trial[0, 2:], controller=lambda t: powers3(t, powers[counter]), tspan = max(trial[:, 0]))
+        error += np.linalg.norm(np.linalg.norm(model.soln(trial[:, 0])[0:2].T - trial[:, 2:4], axis=1)**2)**2
+    
+    print(consts, error)
     return error
+
+# y_0 = np.array([0.15, 40, 0.125, 0.125, 1.74242, 0.04926476])
+# cur = y_0.copy()
+# dx = 0.0001
+# step = 0.0001
+# old_time = perf_counter()
+# x = 1
+# while True:
+#     base = cost(cur)
+#     print([np.format_float_positional(i) for i in cur], np.round(base, 1), np.round(perf_counter()-old_time, 3))
+#     d = np.zeros(len(y_0))
+#     old_time = perf_counter()
+#     for i in range(len(y_0)):
+#         test = cur.copy()
+#         test[i] += dx
+#         d[i] = (cost(test) - base)
+#     cur += step*d
+#     step *= 0.95
+#     if x == 0: break
+
 #%%
-print(cost([0.15, 40, 9.8, 0.125, 0.125, 1.74242, 0.04926476]))
+# print(cost([0.15, 40, 0.125, 0.125, 1.74242, 0.04926476]))
 #%%
-minimize(fun = cost, x0 = [0.15, 40, 9.8, 0.125, 0.125, 1.74242, 0.04926476])
+print(minimize(fun = cost, x0 = np.array([0.15, 40, 0.125, 0.125, 20.909, 0.04926476])))
 # %%
 trials = len(data)
-fig, ax = plt.subplots(trials, 2, sharex=True)
+fig, ax = plt.subplots(trials, 4, sharex=True, gridspec_kw={'hspace': 0})
 fig.suptitle("Pendulum Angle and Velocity vs. Time (s)")
-ax[0][0].set_title("Position (rad)")
-ax[0][1].set_title("Velocity (rad/s)")
+ax[0][0].set_title("Pend Angle (rad)")
+ax[0][1].set_title("Pend Vel (rad/s)")
+ax[0][2].set_title("Cart Pos (m)")
+ax[0][3].set_title("Cart Vel (m/s)")
+model = dipc_model()
+model.update_constants_and_relinearize([0.15, 40, 0.125, 0.125, 1.74242, 0.04926476])
 for i in range(trials):
-    ax[i][0].axvline(1*47.44, color='orange', linestyle='dashed')
-    ax[i][0].axvline(1.5*47.44, color='orange', linestyle='dashed')
-    ax[i][1].axvline(1*47.44, color='orange', linestyle='dashed')
-    ax[i][1].axvline(1.5*47.44, color='orange', linestyle='dashed')
-    # data[i][:, 1][data[i][:, 1] > 100] -= 5400
-    ax[i][0].plot(data[i][:, 2], label = '$\\theta$')
-    # ax[i][1].plot(np.diff(np.convolve(data[i][:, 1]*np.pi/180, np.ones(5)/5, 'same')), label = '$\dot \\theta$')
-    ax[i][1].plot(data[i][:, 5], label = '$\dot \\theta$')
-    ax[i][0].xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, pos: '{0:g}'.format(x/47.44)))
-    ax[i][1].xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, pos: '{0:g}'.format(x/47.44)))
-fig.tight_layout()
-try:
-    plt.show()
-except:
-    plt.close()
+    model.integrate_with_scipy(y_0 = data[i][0, 2:], controller=lambda t: powers3(t, powers[i]), tspan = max(data[i][:, 0]), remember_forces = True)
+    print(max(model.soln_forces[:, 1]))
+    ax[i][0].plot(data[i][:, 0], model.soln(data[i][:, 0])[1], color='orange', label='$\hat \\theta$')
+    ax[i][0].plot(data[i][:, 0], data[i][:, 3], label = '$\\theta$')
+    ax[i][1].plot(data[i][:, 0], model.soln(data[i][:, 0])[3], color='orange', label='$\hat \dot \\theta$')
+    ax[i][1].plot(data[i][:, 0], data[i][:, 5], label = '$\dot \\theta$')
+    ax[i][2].plot(data[i][:, 0], model.soln(data[i][:, 0])[0], color='orange', label='$\hat x$')
+    ax[i][2].plot(data[i][:, 0], data[i][:, 2], label = '$x$')
+    ax[i][3].plot(data[i][:, 0], model.soln(data[i][:, 0])[2], color='orange', label='$\hat \dot x$')
+    ax[i][3].plot(data[i][:, 0], data[i][:, 4], label = '$\dot x$')
+
+
+# fig.tight_layout(pad=0)
+
+
+plt.show(block=False)
 
 # L = 0.22403
+#%%
+run_number = 4
+model = dipc_model()
+model.update_constants_and_relinearize([0.3, 40, 0.125, 0.125, 20.909, 0.04926476])
+model.soln_t = data[run_number][:, 0].T
+model.soln_y = data[run_number][:, 2:].T
+model.plot_animation(['tab:blue']+[('green', 'red')[i%2] for i in range(len(powers[run_number])-2)]+['tab:blue'], powers[2][:, 0])
+model.show_plots()
+
+
+
 # %%
 # constants:
 
