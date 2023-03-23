@@ -36,21 +36,21 @@ import matplotlib.animation as animation
 class dipc_model:
     def __init__(self, constants={ # [0.15, 40, 9.8, 0.125, 0.125, 1.74242, 0.04926476]
             'L':  0.15, # length of pend com, in meters
-            'kF': 40, # coefficent of friction (N per m/s)
             'ma': 0.125, # mass of cart (kg)
             'mb': 0.125, # mass of pendulum (kg)
-            'kV': 1.74242, # constant for motor force proportional to voltage applied
-            'kW': 0.04926477 # constant for negative motor force proportional to speed of cart (m/s, just y[0])
+            'kE': 0.00474448, # constant for motor force proportional to voltage applied
+            'kF': 0.04926477 # friction
         }): 
         self.K = {}
         self.constants = list(constants.values())
+        # self.R_a = 0.142301 # armature resistance
+        self.R_a = 0.9 # actual measured armature resistance
         self.y = dynamicsymbols('y:4')
         # y1, y3 is cart pos, vel
         # y2, y4 is pend ang, vel
-        self.l, self.kF, self.t = symbols('l, c, t')
+        self.l, self.t = symbols('l, t')
         # l is first pend length
         # lcom is pos of COM from cart pivot joint of first pend (fraction of L)
-        # c is friction of cart
         # g is gravity (positive)
         # t is time
 
@@ -58,8 +58,8 @@ class dipc_model:
         # ma is mass of cart
         # mb is mass of first pendulum
 
-        self.kV, self.kW = symbols('k_V, k_W')
-        # kV is voltage constant, kW is velocity constant (for motor force output)
+        self.kE, self.kF = symbols('k_V, k_W')
+        # kE is constant for motor, kF is friction
 
 
         self.track = Body('N')
@@ -75,8 +75,10 @@ class dipc_model:
         self.bodies = (self.track, self.cart, self.top_pend)
 
         self.F = dynamicsymbols('F')
-        self.cart.apply_force(self.F*self.cart.x) # motor
-        self.cart.apply_force(-self.kF*sp.tanh(self.y[2])*self.track.x)# , reaction_body=self.track) # friction
+        #                                    k_E        *          I                 - friction
+        #                              k_E    *   (V_actual        /      R_armature)   - friction
+        #                         ((k_E * (V_applied - k_E   *   w))   /  R_armature) - k_f  *   w
+        self.cart.apply_force(((16*sp.pi/0.06)*(self.kE*(12*self.F - self.kE * self.y[2])/self.R_a) - self.kF * self.y[2])*self.cart.x)
 
         # gravity
         # self.cart.apply_force(-self.track.y*self.cart.mass*self.g)
@@ -87,24 +89,24 @@ class dipc_model:
         self.method.form_eoms()
         self.ydot = self.method.rhs()
         self.A_sym, self.B_sym = self.method.method.to_linearizer().linearize(A_and_B=True, simplify=True)
-    def update_constants_and_relinearize(self, new_constants):
+    def set_constants(self, new_constants):
         self.constants = new_constants
-        self.lambdify()
     def linearize(self, op_point=[0,sp.pi,0,0]):
         op_point=dict(zip(
             self.y+[
                self.F,
                self.l,
-               self.kF,
                self.ma,
                self.mb,
+               self.kE,
+               self.kF,
             ], 
-            op_point+[0]+list(self.constants[:-2])))
+            op_point+[0]+list(self.constants)))
         self.A, self.B = msubs(self.A_sym, op_point), msubs(self.B_sym, op_point)
         self.A, self.B = np.array(self.A).astype(np.float64), np.array(self.B).astype(np.float64)
         return self
     def lambdify(self):
-        self.func = sp.lambdify([self.y, self.F, self.l, self.kF, self.ma, self.mb], self.ydot, 'numpy')
+        self.func = sp.lambdify([self.y, self.F, self.l, self.ma, self.mb, self.kE, self.kF], self.ydot, 'numpy')
         # self.func = sp.lambdify([self.y, self.F, self.lb, self.lc, self.lcom, self.c, self.g, self.ma, self.mb, self.mc, self.IBzz, self.ICzz], self.ydot, 'numpy')
         return self
     def construct_PP(self, eigs):
@@ -119,13 +121,14 @@ class dipc_model:
                             targets = np.array([[  0, np.pi, 0, 0],
                                                 [0.5, np.pi, 0, 0]]),
                             target_timestamps=[0, 5, 10], 
+                            constants = None,
                             tspan=15,
                             framerate=60,
                             lag_seconds=0.25,
                             controller='LQR',
                             t_eval = None,
                             remember_forces = False):
-
+        if constants is None: constants = self.constants
         lag_buffer = [y_0]*int(framerate*lag_seconds)
         forces = []
         # if controller == 'FFF':
@@ -137,7 +140,7 @@ class dipc_model:
         if isinstance(controller, str): 
             ctrl = lambda t, e: (-self.K[controller]@e)[0]
         else: 
-            ctrl = lambda t, dx: np.sign(controller(t)) * (np.abs(controller(t)) * self.constants[-2] - self.constants[-1] * np.abs(dx))
+            ctrl = lambda t, dx: controller(t)
 
         # def func_for_scipy(t, x):
         #     lag_buffer.append(x)
@@ -152,10 +155,11 @@ class dipc_model:
         
         def func_for_scipy(t, x):
             if remember_forces:
-                forces.append([t, ctrl(t, x[2])])
-                return self.func(x, forces[-1][1], *self.constants[:-2]).flatten()
+                # ((16*sp.pi/0.06)*(self.kE*(12*self.F - self.kE * self.y[2])/self.R_a) - self.kF * self.y[2])*self.cart.x
+                forces.append([t, ctrl(t, x[2]), (16*np.pi/0.06)*(constants[-2]*(12*ctrl(t, x[2]) - constants[-2]*x[2])/self.R_a) - constants[-1]*((1/8)*sp.asinh(10*x[2]))])# + 2*x[2]])
+                return self.func(x, forces[-1][1], *constants).flatten()
             else:
-                return self.func(x, ctrl(t, x[2]), *self.constants[:-2]).flatten()
+                return self.func(x, ctrl(t, x[2]), *constants).flatten()
         soln = solve_ivp(func_for_scipy, (0, tspan), y_0, dense_output=True, t_eval = t_eval if not (t_eval is None) else np.arange(0, tspan, 1/framerate))
         if remember_forces:
             forces.sort(key = lambda x: x[0])
@@ -189,8 +193,8 @@ class dipc_model:
         ax.axis([-0.5,1.5,-0.75,0.75])
         self.anim = animation.FuncAnimation(fig, animate, interval=(self.soln_t[1]-self.soln_t[0])*1000, frames=num_frames+30)
         plt.show()
-    def show_plots(self):
-        plt.show()
+    def show_plots(self, block = True):
+        plt.show(block = block)
     @classmethod
     def rot(self, th):
         return np.array([

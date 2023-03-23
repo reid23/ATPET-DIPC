@@ -36,6 +36,7 @@ class Pendulum:
         """exits the context manager
         """
         self.set(0)
+        sleep(0.03)
         self.stop.set()
         sleep(0.03)
         self.ser.close()
@@ -92,31 +93,50 @@ class Pendulum:
         sleep(0.02)
         print(self.ser.readline())
     
-
+from pyjoystick.sdl2 import Key, Joystick, run_event_loop
 if __name__ == '__main__':
-    power = 0.2
-    delay = 0.2
-    with open('SI/data3.txt', 'a') as f:
+    power = 0.5
+    period = 1.2
+    # delay = 0.2
+    with open('SI/data4.txt', 'a') as f:
         print('[', file = f)
-    with Pendulum(file = 'SI/data3.txt') as p:
+    with Pendulum(file = 'SI/data4.txt') as p:
         p.set(0)
         sleep(1)
-
-        p.set(power)
-        sleep(delay)
-        p.set(-power)
-        sleep(delay)
-        p.set(power)
-        sleep(delay)
-        p.set(-power)
-        sleep(delay)
-        p.set(power)
-        sleep(delay)
-        p.set(-power)
-        sleep(delay)
-
+        for i in np.arange(0, 20*np.pi, 0.1):
+            # print(np.sin(i)/5)
+            p.set((np.sin(i)/2 + 0.5*np.sin(2*i))*0.666*power)
+            sleep(period/(2*np.pi/0.1))
         p.set(0)
-        sleep(2)
+        sleep(1)
+        # def print_add(joy):
+        #     print('Added', joy)
 
-    with open('SI/data3.txt', 'a') as f:
-        print('],', file = f)
+        # def print_remove(joy):
+        #     print('Removed', joy)
+
+        # def key_received(key):
+        #     print('Key:', key)
+
+        # run_event_loop(print_add, print_remove, key_received)
+        # p.set(0)
+        # sleep(1)
+
+        # p.set(power)
+        # sleep(delay)
+        # p.set(-power)
+        # sleep(delay)
+        # p.set(power)
+        # sleep(delay)
+        # p.set(-power)
+        # sleep(delay)
+        # p.set(power)
+        # sleep(delay)
+        # p.set(-power)
+        # sleep(delay)
+
+        # p.set(0)
+        # sleep(2)
+
+    with open('SI/data4.txt', 'a') as f:
+        print('],', file = f, end = '')

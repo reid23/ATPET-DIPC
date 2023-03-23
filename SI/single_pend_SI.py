@@ -1,23 +1,28 @@
 #%%
+from multiprocessing import Pool
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from sim.single_pendulum_model import dipc_model
-from scipy.optimize import minimize, curve_fit
-from scipy.interpolate import interp1d
-from numba import njit
+from scipy.optimize import minimize
+from scipy.interpolate import CubicSpline
+# from numba import njit
 #%%
-with open('data3.txt', 'r') as f:
+with open('data4.txt', 'r') as f:
     data = list(map(np.array, eval(f.read())))
-for i in [4,5,6,7,8,9,24,25][::-1]: # delete bad data
-    data.pop(i)
-model = dipc_model()
+# for data3.txt
+# for i in [4,5,6,7,8,9,24,25][::-1]: # delete bad data
+#     data.pop(i)
+model = dipc_model().lambdify()
 interpolators = []
 powers = []
+splines = np.empty((len(data), 6), dtype=object)
 for i in range(len(data)):
     data[i] = data[i][10:-10, (0,1,2,3,5,6)]
     data[i][:, 0] -= data[i][0, 0]
     data[i][:, 0] *= 1e-9
+    # data[i][:, 1] *= -1
+
     powers.append(np.array(data[i][:, :2]))
     deletions = 0
     for j in range(len(data[i])):
@@ -29,11 +34,14 @@ for i in range(len(data)):
         if np.abs(data[i][j, 3] - data[i][j-1, 3])>1:
             print('here', i, j)
             data[i][j, 3] = (data[i][j+1, 3] + data[i][j-1, 3])/2
-
+    for j in range(4):
+        splines[i, j] = CubicSpline(data[i][:, 0], data[i][:, j+2], extrapolate=False)
+    splines[i, 4] = splines[i, 2].derivative()
+    splines[i, 5] = splines[i, 3].derivative()
 
 #%%
 
-@njit
+# @njit
 def powers1(t, data):
     return data[np.argmin(np.abs(data[:, 0] - t)), 1]
 
@@ -41,7 +49,7 @@ def powers1(t, data):
 def powers2(t, j):
     return data[j][np.argmin(np.abs(data[j][:, 0] - t)), 1]
 
-@njit
+# @njit
 def powers3(t, powers):
     # print(powers[np.searchsorted(powers[:, 0], t)-1, 1])
     return powers[np.searchsorted(powers[:, 0], t)-1, 1]
@@ -49,60 +57,84 @@ def powers3(t, powers):
 
 def f(t, *consts):
     if model.constants != consts:
-        model.update_constants_and_relinearize(consts)
+        model.set_constants(consts)
         model.integrate_with_scipy(y_0 = data[19][0, 2:], controller=lambda t: powers2(t, 19), tspan = max(data[19][:, 0]), t_eval = data[i][:, 0])
     print((model.soln(t).T))
     return np.array(model.soln(t)).T
 
 #%%
 from time import perf_counter
+
 def cost(consts):
-    model.update_constants_and_relinearize(consts)
     # error = # figure out interpolation of data to get least squares error accumulation
     error = 0
     for counter, trial in enumerate(data):
-        model.integrate_with_scipy(y_0 = trial[0, 2:], controller=lambda t: powers3(t, powers[counter]), tspan = max(trial[:, 0]))
-        error += np.linalg.norm(np.linalg.norm(model.soln(trial[:, 0])[0:2].T - trial[:, 2:4], axis=1)**2)**2
+        model.integrate_with_scipy(y_0 = trial[0, 2:], controller=lambda t: powers3(t, powers[counter]), tspan = max(trial[:, 0]), constants = consts)
+        error += np.linalg.norm(np.linalg.norm(model.soln(trial[:, 0])[0:4].T - trial[:, 2:6], axis=1)**2)**2
     
-    print(consts, error)
+    # print(consts, error)
     return error
-
-# y_0 = np.array([0.15, 40, 0.125, 0.125, 1.74242, 0.04926476])
-# cur = y_0.copy()
-# dx = 0.0001
-# step = 0.0001
-# old_time = perf_counter()
-# x = 1
-# while True:
-#     base = cost(cur)
-#     print([np.format_float_positional(i) for i in cur], np.round(base, 1), np.round(perf_counter()-old_time, 3))
-#     d = np.zeros(len(y_0))
-#     old_time = perf_counter()
-#     for i in range(len(y_0)):
-#         test = cur.copy()
-#         test[i] += dx
-#         d[i] = (cost(test) - base)
-#     cur += step*d
-#     step *= 0.95
-#     if x == 0: break
-
+            #    L   ma  mb      K_E   K_f
+y_0 = np.array([0.22, 1, 0.12, 0.00299,  22])
+cur = y_0.copy()
+dx = 0.01
+step_scale = 1
+step = 0.05
+old_time = perf_counter()
+best_cost = np.Inf
+best_coeffs = []
+try:
+    while True:
+        base = cost(cur)
+        if base > 1_000_000_000: 
+            print(f'died, final cost was {base} with weights {cur}')
+            break
+        if base < best_cost:
+            best_cost = base
+            best_coeffs = cur
+        print('[', *[np.format_float_positional(i, 5) for i in cur], ']',
+            np.round(base, 1), 
+            np.round(perf_counter()-old_time, 3), sep='\t')
+        d = np.zeros(len(y_0))
+        old_time = perf_counter()
+        for i in range(len(y_0)):
+            test = cur.copy()
+            test[i] += dx*y_0[i]
+            d[i] = (cost(test) - base)
+        d = d/np.linalg.norm(d)
+        # print('d: ', d)
+        # print('step: ', step_scale*d*step)
+        cur -= step_scale*d*step
+        cur[cur<0] = 0.00005
+        step_scale *= 0.995
+except KeyboardInterrupt:
+    print('done!')
+    print(best_coeffs, best_cost)
 #%%
 # print(cost([0.15, 40, 0.125, 0.125, 1.74242, 0.04926476]))
 #%%
-print(minimize(fun = cost, x0 = np.array([0.15, 40, 0.125, 0.125, 20.909, 0.04926476])))
+# res = minimize(fun = cost, x0 = y_0)
+# print(res)
 # %%
-trials = len(data)
+# trials=4
+# fig, ax = plt.subplots(trials, 6, sharex=True, gridspec_kw={'hspace':0})
+# fig.suptitle("pend ang , vel, acc vs. time (s)")
+
+#%%
+# trials = len(data)
+trials = 4
 fig, ax = plt.subplots(trials, 4, sharex=True, gridspec_kw={'hspace': 0})
 fig.suptitle("Pendulum Angle and Velocity vs. Time (s)")
 ax[0][0].set_title("Pend Angle (rad)")
 ax[0][1].set_title("Pend Vel (rad/s)")
 ax[0][2].set_title("Cart Pos (m)")
 ax[0][3].set_title("Cart Vel (m/s)")
-model = dipc_model()
-model.update_constants_and_relinearize([0.15, 40, 0.125, 0.125, 1.74242, 0.04926476])
+model = dipc_model().lambdify()
+model.set_constants(y_0)
+
 for i in range(trials):
     model.integrate_with_scipy(y_0 = data[i][0, 2:], controller=lambda t: powers3(t, powers[i]), tspan = max(data[i][:, 0]), remember_forces = True)
-    print(max(model.soln_forces[:, 1]))
+    print(f'applied power: {max(model.soln_forces[:, 1])}, actual force: {max(model.soln_forces[:, 2])}')
     ax[i][0].plot(data[i][:, 0], model.soln(data[i][:, 0])[1], color='orange', label='$\hat \\theta$')
     ax[i][0].plot(data[i][:, 0], data[i][:, 3], label = '$\\theta$')
     ax[i][1].plot(data[i][:, 0], model.soln(data[i][:, 0])[3], color='orange', label='$\hat \dot \\theta$')
@@ -112,20 +144,40 @@ for i in range(trials):
     ax[i][3].plot(data[i][:, 0], model.soln(data[i][:, 0])[2], color='orange', label='$\hat \dot x$')
     ax[i][3].plot(data[i][:, 0], data[i][:, 4], label = '$\dot x$')
 
+run_number = 0
+model.integrate_with_scipy(y_0 = data[run_number][0, 2:], controller=lambda t: powers3(t, powers[run_number]), tspan = max(data[run_number][:, 0]), remember_forces = True)
+model.soln_y = model.soln(data[0][:, 0])
+model.soln_t = data[0][:, 0]
+eigs = np.array([
+    [-3.50], 
+    [-3.51],
+    [-3.52],
+    [-3.53],
+])
 
+Q = np.diag([100, 10, 1, 100])
+R = np.diag([10])
+model.linearize().lambdify().construct_LQR(Q, R).construct_PP(eigs)
+print(model.K)
+# model.construct_lqr().construct_PP()
+model.plot_animation(['tab:blue']*len(powers[0]), powers[0][:, 0])
 # fig.tight_layout(pad=0)
+model.show_plots(block=False)
 
 
 plt.show(block=False)
 
 # L = 0.22403
 #%%
-run_number = 4
+run_number = 0
 model = dipc_model()
-model.update_constants_and_relinearize([0.3, 40, 0.125, 0.125, 20.909, 0.04926476])
+model.set_constants([0.15, 0.2, 0.07, 0.02995, 0.002])
+# model.set_constants([0.3, 0.125, 0.125, 20.909, 0.04926476])
 model.soln_t = data[run_number][:, 0].T
 model.soln_y = data[run_number][:, 2:].T
-model.plot_animation(['tab:blue']+[('green', 'red')[i%2] for i in range(len(powers[run_number])-2)]+['tab:blue'], powers[2][:, 0])
+# model.plot_animation(['tab:blue']+[('green', 'red')[i%2] for i in range(len(powers[run_number])-2)]+['tab:blue'], powers[2][:, 0])
+model.plot_animation(['tab:blue']*len(powers[run_number]), powers[run_number][:, 0])
+
 model.show_plots()
 
 
