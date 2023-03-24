@@ -91,6 +91,7 @@ class dipc_model:
         self.A_sym, self.B_sym = self.method.method.to_linearizer().linearize(A_and_B=True, simplify=True)
     def set_constants(self, new_constants):
         self.constants = new_constants
+        return self
     def linearize(self, op_point=[0,sp.pi,0,0]):
         op_point=dict(zip(
             self.y+[
@@ -156,10 +157,10 @@ class dipc_model:
         def func_for_scipy(t, x):
             if remember_forces:
                 # ((16*sp.pi/0.06)*(self.kE*(12*self.F - self.kE * self.y[2])/self.R_a) - self.kF * self.y[2])*self.cart.x
-                forces.append([t, ctrl(t, x[2]), (16*np.pi/0.06)*(constants[-2]*(12*ctrl(t, x[2]) - constants[-2]*x[2])/self.R_a) - constants[-1]*((1/8)*sp.asinh(10*x[2]))])# + 2*x[2]])
+                forces.append([t, ctrl(t, targets[0] - x), (16*np.pi/0.06)*(constants[-2]*(12*ctrl(t, x[2]) - constants[-2]*x[2])/self.R_a) - constants[-1]*((1/8)*sp.asinh(10*x[2]))])# + 2*x[2]])
                 return self.func(x, forces[-1][1], *constants).flatten()
             else:
-                return self.func(x, ctrl(t, x[2]), *constants).flatten()
+                return self.func(x, ctrl(t, x), *constants).flatten()
         soln = solve_ivp(func_for_scipy, (0, tspan), y_0, dense_output=True, t_eval = t_eval if not (t_eval is None) else np.arange(0, tspan, 1/framerate))
         if remember_forces:
             forces.sort(key = lambda x: x[0])

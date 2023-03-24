@@ -17,7 +17,7 @@ class Pendulum:
         self.file = file
         self.y = np.zeros(6)
         self.pwr = 0
-        self.modes = {'local':0, 'usb':1, 'pleb':2}
+        self.modes = {'usb': 0, 'local': 1, 'pleb': 2}
         self.start = perf_counter_ns()
     def __enter__(self):
         """enter a context manager
@@ -51,11 +51,12 @@ class Pendulum:
         """
         while not stop_event.is_set():
             try:
-                ser.write(bytearray([0])+struct.pack('>H', int((self.pwr+1)*32767.5)))
+                ser.write(bytearray([0])+struct.pack('>H', int((self.pwr+1)*32768)))
                 sleep(0.02)
                 self.y = np.array(str(ser.readline())[2:-3].split(','), dtype=float)
             except Exception as e:
-                print(e)
+                # print(e)
+                pass
             if not file is None: print([perf_counter_ns()-self.start, self.pwr]+list(map(lambda x: round(x, 5), self.y)), end=',\n', file = file)
     def set(self, power):
         """sets power to given value, accounting for deadband
@@ -93,7 +94,6 @@ class Pendulum:
         sleep(0.02)
         print(self.ser.readline())
     
-from pyjoystick.sdl2 import Key, Joystick, run_event_loop
 if __name__ == '__main__':
     power = 0.5
     period = 1.2

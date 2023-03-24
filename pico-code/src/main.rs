@@ -4,7 +4,7 @@
 
 use rp_pico::entry; // startup function macro
 use embedded_hal::PwmPin; // hardware pwm
-use embedded_hal::digital::v2::{OutputPin, InputPin}; 
+use embedded_hal::digital::v2::OutputPin; 
 use rp_pico::hal::Timer;
 use rp_pico::hal::gpio::{Pin, PullUpInput};
 use rp_pico::hal::gpio::bank0::Gpio11;
@@ -14,7 +14,8 @@ use rp_pico::hal; use rp_pico::hal::timer::Alarm;
 // shorter hal alias
 use usb_device::{class_prelude::*, prelude::*}; // USB device emulation
 use usbd_serial::SerialPort; // more USB stuff
-use heapless::String; // bc we have no std
+use heapless::String; use core::f32::consts::PI;
+// bc we have no std
 use core::fmt::Write; // for printing
 use embedded_hal::blocking::i2c::{Operation, Transactional}; // I2C HAL traits/types
 use embedded_hal::prelude::_embedded_hal_blocking_i2c_WriteRead; // actual i2c func
@@ -22,7 +23,6 @@ use fugit::{RateExtU32, ExtU32}; // for .kHz() and similar
 use panic_halt as _; // make sure program halts on panic (need to mention crate for it to be linked)
 use rp_pico::hal::pac::interrupt;
 use core::sync::atomic::{AtomicI32, AtomicU16, AtomicU8, AtomicBool, Ordering};
-
 
 // #[derive(Clone, Copy)]
 // enum CtrlMode{
@@ -40,15 +40,32 @@ impl GetDuty for f32{
     }
 }
 
+fn unsafe_norm(n: &f32) -> Result<f32, &'static str> {
+    let n = if n > &1.0 {&1.0} 
+             else if n < &-1.0 {&-1.0} 
+             else {n};
+    if n < &0.0 {
+        Ok(-0.04+0.96 * n)
+    } else if n > &0.0{
+        Ok(0.04+0.96 * n)
+    } else {
+        Ok(0.0)
+    }
+}
+
 fn basic_norm(n: &f32) -> Result<f32, &'static str> {
     if n < &-1.0 || n > &1.0{
         Err("out of bounds, expected -1<n<1")
 
     // now cope because we can't change the deadband
-    } else if n > &0.0 {
-        Ok(0.04+0.96 * n)
-    } else if n < &0.0{
-        Ok(-0.04+0.96 * n)
+    // also yes gt/lt signs swapped
+    // it's so that the power moves
+    // the cart in the right direction
+    // aka + => right, - => left
+    } else if n < &0.0 {
+        Ok(0.04+0.96 * -n)
+    } else if n > &0.0{
+        Ok(-0.04+0.96 * -n)
     } else {
         Ok(0.0)
     }
@@ -96,7 +113,7 @@ static TOP: AtomicI32 = AtomicI32::new(0);
 static END: AtomicI32 = AtomicI32::new(0);
 
 static CART_OFFSET: AtomicI32 = AtomicI32::new(0);
-static TOP_OFFSET: AtomicI32 = AtomicI32::new(0);
+static TOP_OFFSET: AtomicI32 = AtomicI32::new(2954-18);
 static END_OFFSET: AtomicI32 = AtomicI32::new(0);
 
 static CART_ROTS: AtomicI32 = AtomicI32::new(0);
@@ -119,7 +136,7 @@ fn main() -> ! {
     // its copied from the examples and it works I guess
     // Grab our singleton objects
     let mut pac = pac::Peripherals::take().unwrap();
-    let core = pac::CorePeripherals::take().unwrap();
+    let _core = pac::CorePeripherals::take().unwrap();
 
     // Set up the watchdog driver - needed by the clock setup code
     let mut watchdog = hal::Watchdog::new(pac.WATCHDOG);
@@ -183,7 +200,7 @@ fn main() -> ! {
     ));
     
     // allow sleeping
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
+    // let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
     
     // turn on the status LED to show the board isn't ded and all the setup worked (probably)
     led_pin.set_high().unwrap();
@@ -203,11 +220,11 @@ fn main() -> ! {
     
     // make this emulate a usb device
     let mut usb_dev = UsbDeviceBuilder::new(bus_ref, UsbVidPid(0x16c0, 0x27dd))
-    .manufacturer("Reid Dye")
-    .product("ATPET Inverted Pendulum")
-    .serial_number("0001")
-    .device_class(2) // from: https://www.usb.org/defined-class-codes
-    .build();
+        .manufacturer("Reid Dye")
+        .product("ATPET Inverted Pendulum")
+        .serial_number("0001")
+        .device_class(2) // from: https://www.usb.org/defined-class-codes
+        .build();
 
     // Note (safety): This is safe as interrupts haven't been started yet
     unsafe { USB_DEVICE = Some(usb_dev); }
@@ -253,27 +270,10 @@ fn main() -> ! {
     channel.set_duty(0.0.get_duty(&basic_norm));
 
     // init variables to track positions
-    let (mut cart_pos, mut cart_rots) = (0, 0);
-    let (mut top_pos, mut top_rots) = (0, 0);
-    let (mut end_pos, mut end_rots) = (0, 0);
+    let (mut cart_rots, mut top_rots, mut end_rots);
+    let (mut cart_pos, mut top_pos, mut end_pos) = (0,0,0);
     let (mut dc, mut dt, mut de);
-    let (mut oldc, mut oldt, mut olde) = (0,0,0);
-
-
-    // offsets
-    let mut cart_offset = [0; 2];
-    let mut top_offset = [0; 2];
-    let mut end_offset = [0; 2];
-    // first grab all three encoder positions
-    cart_i2c
-    .exec(0x36u8, &mut [
-        Operation::Write(&[0x0Eu8]),
-        Operation::Read(&mut cart_offset),
-        ])
-        .expect("Failed to run all operations");
-
-    top_i2c.write_read(0x36, &[0x0Eu8], &mut top_offset).unwrap();
-    end_i2c.write_read(0x36, &[0x0Eu8], &mut end_offset).unwrap();
+    let (mut oldc, mut oldt, mut olde);
 
     let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS);
     let t0 = timer.get_counter();
@@ -318,11 +318,11 @@ fn main() -> ! {
         // first grab all three encoder positions
         let _ = cart_i2c
             .exec(0x36u8, &mut [
-                Operation::Write(&[0x0Eu8]),
+                Operation::Write(&[0x0Cu8]),
                 Operation::Read(&mut cart),
                 ]);
-        let _ = top_i2c.write_read(0x36, &[0x0Eu8], &mut top);
-        let _ = end_i2c.write_read(0x36, &[0x0Eu8], &mut end);
+        let _ = top_i2c.write_read(0x36, &[0x0Cu8], &mut top);
+        let _ = end_i2c.write_read(0x36, &[0x0Cu8], &mut end);
         
         if u16::from_be_bytes(cart) > 4096 || 
            u16::from_be_bytes(top)  > 4096 || 
@@ -336,11 +336,11 @@ fn main() -> ! {
         top_pos = u16::from_be_bytes(top) as i32;
         end_pos = u16::from_be_bytes(end) as i32;
         
-
+        
         dc = cart_pos-oldc;
         dt = top_pos-oldt;
         de = end_pos-olde;
-        
+
         // check if angle wrap happened
         cart_rots = CART_ROTS.load(Ordering::Relaxed);
         top_rots = TOP_ROTS.load(Ordering::Relaxed);
@@ -379,14 +379,20 @@ fn main() -> ! {
                 //do nothing, we already set power above
             },
             1 => { //local
-                CUR_POWER.store((
-                          c as f32 * CART_M_PER_TICK * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
-                        + t as f32 * RADS_PER_TICK * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
-                        + e as f32 * RADS_PER_TICK * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
+                let top_err = (t - TOP_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK - PI;
+                if top_err > PI/2.0 || top_err < -PI/2.0 {
+                    CUR_POWER.store(0.0.get_duty(&basic_norm), Ordering::Relaxed);
+                    MODE.store(0, Ordering::Relaxed);
+                } else {
+                    CUR_POWER.store((-1.0*
+                        (((c - CART_OFFSET.load(Ordering::Relaxed)) as f32 * CART_M_PER_TICK) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
+                        + top_err * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
+                        + ((e - END_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK) * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
                         + VC.load(Ordering::Relaxed) as f32 * CART_M_PER_TICK * 100.0 * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes()) //2pi/4096 (radians/ticks) times 1_000_000 (us/s)
                         + VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 100.0 * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
-                        + VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 100.0 * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
-                ).get_duty(&basic_norm), Ordering::Relaxed); //calibrated values for 0, -1, 1
+                        + VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 100.0 * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes()))
+                    ).get_duty(&unsafe_norm), Ordering::Relaxed); //calibrated values for 0, -1, 1
+                }
             },
             2 => { //pleb
                 CUR_POWER.store(pleb_fn(timer
@@ -414,7 +420,7 @@ fn main() -> ! {
 #[allow(non_snake_case)]
 #[interrupt]
 unsafe fn USBCTRL_IRQ() {
-    use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+    use core::sync::atomic::{AtomicBool, Ordering};
 
     /// Note whether we've already printed the "hello" message.
     static SAID_HELLO: AtomicBool = AtomicBool::new(false);
@@ -441,6 +447,7 @@ unsafe fn USBCTRL_IRQ() {
                     100 => {
                         IN_RESET.store(false, Ordering::Relaxed);
                         let _ = serial.write(b"Reset mode deactivated. Functionality restored.\n");
+                        CUR_POWER.store(0.0.get_duty(&basic_norm), Ordering::Relaxed)
                     }
                     _ => {
                         let _ = serial.write(b"System in reset. Send 01100100 to reactivate.\n");
@@ -484,7 +491,7 @@ unsafe fn USBCTRL_IRQ() {
                         (END.load(Ordering::Relaxed) -  END_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK, 
                         VC.load(Ordering::Relaxed) as f32 * CART_M_PER_TICK * 20.0, 
                         VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0, 
-                        VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0
+                        VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0,
                     );
                     let _ = serial.write(message.as_bytes());
                 }
