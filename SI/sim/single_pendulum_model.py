@@ -211,11 +211,9 @@ class dipc_model:
         print("""
         \\begin{bmatrix}
         \dot x \\
-        \ddot x \\
         \dot \\theta_1 \\
+        \ddot x \\
         \ddot \\theta_1 \\
-        \dot \\theta_2 \\
-        \ddot \\theta_2
         \end{bmatrix} = 
         """ + sp.latex(self.ydot.subs([
             (self.y[0].diff(self.t), dx),

@@ -12,6 +12,7 @@ from time import perf_counter
 #%%
 with open('data4.txt', 'r') as f:
     data = list(map(np.array, eval(f.read())))
+    print(len(data))
 # for data3.txt
 # for i in [4,5,6,7,8,9,24,25][::-1]: # delete bad data
 #     data.pop(i)
@@ -128,7 +129,7 @@ if __name__ == '__main__':
 
     #%%
     # trials = len(data)
-    trials = 4
+    trials = 13
     fig, ax = plt.subplots(trials, 4, sharex=True, gridspec_kw={'hspace': 0})
     fig.suptitle("Pendulum Angle and Velocity vs. Time (s)")
     ax[0][0].set_title("Pend Angle (rad)")

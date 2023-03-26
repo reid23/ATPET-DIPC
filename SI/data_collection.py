@@ -55,9 +55,11 @@ class Pendulum:
                 sleep(0.02)
                 self.y = np.array(str(ser.readline())[2:-3].split(','), dtype=float)
             except Exception as e:
-                # print(e)
+                print(e)
                 pass
-            if not file is None: print([perf_counter_ns()-self.start, self.pwr]+list(map(lambda x: round(x, 5), self.y)), end=',\n', file = file)
+            if not file is None: 
+                # print(self.y)
+                print([perf_counter_ns()-self.start, self.pwr]+list(map(lambda x: round(x, 5), self.y)), end=',\n', file = file)
     def set(self, power):
         """sets power to given value, accounting for deadband
 
