@@ -2,20 +2,14 @@
 from multiprocessing import Pool
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 from sim.single_pendulum_model import dipc_model
-from scipy.optimize import minimize
-from scipy.interpolate import CubicSpline
 import scipy
 from time import perf_counter
 # from numba import njit
 #%%
 with open('data4.txt', 'r') as f:
     data = list(map(np.array, eval(f.read())))
-    print(len(data))
-# for data3.txt
-# for i in [4,5,6,7,8,9,24,25][::-1]: # delete bad data
-#     data.pop(i)
+
 model = dipc_model().lambdify()
 interpolators = []
 powers = []
@@ -24,75 +18,40 @@ for i in range(len(data)):
     data[i] = data[i][10:-10, (0,1,2,3,5,6)]
     data[i][:, 0] -= data[i][0, 0]
     data[i][:, 0] *= 1e-9
-    # data[i][:, 1] *= -1
 
-    powers.append(np.array(data[i][:, :2]))
-    deletions = 0
-    for j in range(len(data[i])):
-        if powers[-1][j-deletions, 1] == powers[-1][j-1-deletions, 1]:
-            powers[-1] = np.delete(powers[-1], j-deletions, axis=0) 
-            deletions += 1
-
-    for j in range(1, len(data[i])-1):
-        if np.abs(data[i][j, 3] - data[i][j-1, 3])>1:
-            print('here', i, j)
-            data[i][j, 3] = (data[i][j+1, 3] + data[i][j-1, 3])/2
-    for j in range(4):
-        splines[i, j] = CubicSpline(data[i][:, 0], data[i][:, j+2], extrapolate=False)
-    splines[i, 4] = splines[i, 2].derivative()
-    splines[i, 5] = splines[i, 3].derivative()
-
-
-#%%
-
-# @njit
-def powers1(t, data):
-    return data[np.argmin(np.abs(data[:, 0] - t)), 1]
-
-
-def powers2(t, j):
-    return data[j][np.argmin(np.abs(data[j][:, 0] - t)), 1]
-
-# @njit
-def powers3(t, powers):
-    # print(powers[np.searchsorted(powers[:, 0], t)-1, 1])
-    return powers[np.searchsorted(powers[:, 0], t)-1, 1]
-
-
-def f(t, *consts):
-    if model.constants != consts:
-        model.set_constants(consts)
-        model.integrate_with_scipy(y_0 = data[19][0, 2:], controller=lambda t: powers2(t, 19), tspan = max(data[19][:, 0]), t_eval = data[i][:, 0])
-    print((model.soln(t).T))
-    return np.array(model.soln(t)).T
 
 #%%
 def single_cost(trial, constants):
-    soln = scipy.integrate.solve_ivp(lambda t, y: model.func(y, powers3(t, powers[trial]), *constants).flatten(), (0, data[trial][-1, 0]), data[trial][0, 2:], t_eval = data[trial][:, 0])
-    return np.sum((soln.y.T - data[trial][:, 2:])**2)
+    soln = scipy.integrate.solve_ivp(lambda t, y: model.func(y, data[trial][np.searchsorted(data[trial][:, 0], t)-1, 1], *constants).flatten(), (0, data[trial][-1, 0]), data[trial][0, 2:], t_eval = data[trial][:, 0])
+    return np.sum((soln.y.T[:, (1,2,3)] - data[trial][:, (3,4,5)])**2)
 
-def cost(consts, pool):
-    return sum(pool.starmap(single_cost, [(i, consts) for i in range(len(data))]))
+def cost(consts, pool, trials_to_use=[0]):
+    return sum(pool.starmap(single_cost, [(i, consts) for i in trials_to_use]))
     error = 0
     for counter, trial in enumerate([data[0]]):
         model.integrate_with_scipy(y_0 = trial[0, 2:], controller=lambda t: powers3(t, powers[counter]), tspan = max(trial[:, 0]), constants = consts)
         error += np.linalg.norm(np.linalg.norm(model.soln(trial[:, 0])[0:4].T - trial[:, 2:6], axis=1)**2)**2
     # print(consts, error)
     return error
+
+def cost_single_threaded(consts, trials_to_use):
+    return sum(map(lambda x: single_cost(x, consts), trials_to_use))
+
 if __name__ == '__main__':
                 #    L   ma  mb      K_E   K_f
-    y_0 = np.array([0.22, 1, 0.12, 0.00299,  22])
+    y_0 = np.array([0.22, 1, 0.12, 0.00299, 22])
     cur = y_0.copy()
     dx = 0.01
     step_scale = 1
-    step = 0.05
+    step = 0.01
     old_time = perf_counter()
     best_cost = np.Inf
     best_coeffs = []
-    with Pool(len(data)) as p:
+    trials_to_use=[0, 3]
+    with Pool(len(trials_to_use)) as p:
         try:
             while True:
-                base = cost(cur, p)
+                base = cost(cur, p, trials_to_use)
                 if base > 1_000_000_000: 
                     print(f'died, final cost was {base} with weights {cur}')
                     break
@@ -104,23 +63,25 @@ if __name__ == '__main__':
                     np.round(perf_counter()-old_time, 3), sep='\t')
                 d = np.zeros(len(y_0))
                 old_time = perf_counter()
-                for i in range(len(y_0)):
-                    test = cur.copy()
-                    test[i] += dx*y_0[i]
-                    d[i] = (cost(test, p) - base)
+                test = [np.insert(np.delete(cur.copy(), i), i, cur[i] + y_0[i]*dx) for i in range(len(y_0))]
+                d = np.array(p.starmap(cost_single_threaded, [(test[i], trials_to_use) for i in range(len(test))]))
+                # for i in range(len(y_0)):
+                #     test = cur.copy()
+                #     test[i] += dx*y_0[i]
+                #     d[i] = (cost(test, p, trials_to_use) - base)
                 d = d/np.linalg.norm(d)
                 # print('d: ', d)
                 # print('step: ', step_scale*d*step)
                 cur -= step_scale*d*step
                 cur[cur<0] = 0.00005
-                step_scale *= 0.995
+                step_scale *= 0.99
         except KeyboardInterrupt:
             print('done!')
             print(best_coeffs, best_cost)
     #%%
     # print(cost([0.15, 40, 0.125, 0.125, 1.74242, 0.04926476]))
     #%%
-    # res = minimize(fun = cost, x0 = y_0)
+    # res = scipy.optimize.minimize(fun = cost, x0 = y_0)
     # print(res)
     # %%
     # trials=4
@@ -129,7 +90,7 @@ if __name__ == '__main__':
 
     #%%
     # trials = len(data)
-    trials = 13
+    trials = 4
     fig, ax = plt.subplots(trials, 4, sharex=True, gridspec_kw={'hspace': 0})
     fig.suptitle("Pendulum Angle and Velocity vs. Time (s)")
     ax[0][0].set_title("Pend Angle (rad)")
@@ -137,10 +98,10 @@ if __name__ == '__main__':
     ax[0][2].set_title("Cart Pos (m)")
     ax[0][3].set_title("Cart Vel (m/s)")
     model = dipc_model().lambdify()
-    model.set_constants(y_0)
+    model.set_constants(best_coeffs)
 
     for i in range(trials):
-        model.integrate_with_scipy(y_0 = data[i][0, 2:], controller=lambda t: powers3(t, powers[i]), tspan = max(data[i][:, 0]), remember_forces = True)
+        model.integrate_with_scipy(y_0 = data[i][0, 2:], controller=lambda t: data[i][np.searchsorted(data[i][:, 0], t)-1, 1], tspan = max(data[i][:, 0]), remember_forces = True)
         print(f'applied power: {max(model.soln_forces[:, 1])}, actual force: {max(model.soln_forces[:, 2])}')
         ax[i][0].plot(data[i][:, 0], model.soln(data[i][:, 0])[1], color='orange', label='$\hat \\theta$')
         ax[i][0].plot(data[i][:, 0], data[i][:, 3], label = '$\\theta$')
@@ -150,6 +111,8 @@ if __name__ == '__main__':
         ax[i][2].plot(data[i][:, 0], data[i][:, 2], label = '$x$')
         ax[i][3].plot(data[i][:, 0], model.soln(data[i][:, 0])[2], color='orange', label='$\hat \dot x$')
         ax[i][3].plot(data[i][:, 0], data[i][:, 4], label = '$\dot x$')
+    fig.legend()
+    plt.show()
     #%%
     run_number = 0
     model = dipc_model().lambdify()

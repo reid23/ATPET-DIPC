@@ -38,17 +38,9 @@ d.set_start('dtheta', 0)
 
 print(d)
 
-#%%
-
-
-
 # %%
 func = d.create('f', ['x', 'u', 'p'], ['ode'])
 
-# i = integrator('i', 'idas', func)
-# print(i)
-
-# f = Function('f1', func, )
 # %%
 import scipy as sp
 mpc = get_mpc()
@@ -79,84 +71,11 @@ plt.plot(t[1:], solutions[2][1:], label='dx')
 plt.xlabel('time (s)')
 plt.ylabel('x (m), theta (rad), $\dot x$ (m/s)')
 plt.title('MPC Controller Simulation')
-# plt.plot(t[1:], solutions[3][1:], label='dtheta')
-# plt.plot(t[1:], K@(solutions[:, 1:] - target[:, np.newaxis]), label='u')
+# plt.plot(t[1:], solutions[3][1:], label='dtheta') # don't plot by default bc it looks wonky and kinda big
+plt.plot(t[1:], [get_power(0, i) for i in solutions.T][1:], label='u')
 plt.legend()
 plt.show()
-exit()
-# %%
 
-# time to do actual fitting!
 
-with open('data4.txt', 'r') as f:
-    data = list(map(np.array, eval(f.read())))
-
-interpolators = []
-for i in range(len(data)):
-    # crop bits of start and end and scale time to be seconds
-    data[i] = data[i][10:-10, (0,1,2,3,5,6)]
-    data[i][:, 0] -= data[i][0, 0]
-    data[i][:, 0] *= 1e-9
-    
-    # delete outliers
-    for j in range(1, len(data[i])-1):
-        if np.abs(data[i][j, 3] - data[i][j-1, 3])>1:
-            print('here', i, j)
-            data[i][j, 3] = (data[i][j+1, 3] + data[i][j-1, 3])/2
-    interpolators.append(sp.interpolate.interp1d(data[i][:, 0], data[i][:, 1], assume_sorted=True))
-
-def single_cost(trial, consts):
-    # print('func: ', func)
-    soln = sp.integrate.solve_ivp(
-        lambda t, y: np.array(func(
-            y, 
-            interpolators[trial](t), 
-            consts)).flatten(), 
-        y0 = data[trial][0, 2:],
-        t_span=(0, data[trial][-1, 0]), 
-        t_eval = data[trial][:, 0]).y.T
-    return np.sum((soln - data[trial][:, 2:])**2)
-
-def cost(consts, pool):
-    return sum(pool.starmap(single_cost, [(i, consts) for i in range(len(data))]))
-
-from multiprocessing import Pool
-if __name__ == '__main__':
-                #    L   ma  mb      K_E   K_f
-    y_0 = np.array([0.22, 1, 0.12, 0.00299,  22])
-    cur = y_0.copy()
-    dx = 0.01
-    step_scale = 1
-    step = 0.05
-    old_time = perf_counter()
-    best_cost = np.Inf
-    best_coeffs = []
-    with Pool(len(data)) as p:
-        try:
-            while True:
-                base = cost(cur, p)
-                if base > 1_000_000_000: 
-                    print(f'died, final cost was {base} with weights {cur}')
-                    break
-                if base < best_cost:
-                    best_cost = base
-                    best_coeffs = cur
-                print('[', *[np.format_float_positional(i, 5) for i in cur], ']',
-                    np.round(base, 1), 
-                    np.round(perf_counter()-old_time, 3), sep='\t')
-                d = np.zeros(len(y_0))
-                old_time = perf_counter()
-                for i in range(len(y_0)):
-                    test = cur.copy()
-                    test[i] += dx*y_0[i]
-                    d[i] = (cost(test, p) - base)
-                d = d/np.linalg.norm(d)
-                # print('d: ', d)
-                # print('step: ', step_scale*d*step)
-                cur -= step_scale*d*step
-                cur[cur<0] = 0.00005
-                step_scale *= 0.995
-        except KeyboardInterrupt:
-            print('done!')
-            print(best_coeffs, best_cost)
-# %%
+#%%
+# now with euler's method:

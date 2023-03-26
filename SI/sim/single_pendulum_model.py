@@ -58,7 +58,7 @@ class dipc_model:
         # ma is mass of cart
         # mb is mass of first pendulum
 
-        self.kE, self.kF = symbols('k_V, k_W')
+        self.kE, self.kF = symbols('k_E, k_F')
         # kE is constant for motor, kF is friction
 
 
