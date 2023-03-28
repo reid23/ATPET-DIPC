@@ -111,10 +111,12 @@ def get_power(t, y, mpc):
 def mpc_loop(power, state, mpc):
     sleep(0.5)
     while True:
+        start = perf_counter()
         get_power(0, np.array(state), mpc)
-        for i in range(mpc.n_horizon):
+        time = int((perf_counter() - start)/mpc.t_step)
+        for i in range(time, mpc.n_horizon):
             power[i] = mpc.data.prediction(('_u', 'f'))[0][i]
-        ptr.value = 0
+        ptr.value = time
 
 def write_to_pend_loop(power, state, ptr, t_step):
     with Pendulum.Pendulum(file = '/dev/null') as p:
