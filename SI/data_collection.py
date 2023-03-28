@@ -26,8 +26,12 @@ class Pendulum:
             Pendulum: self object for context manager
         """
         self.f = open(self.file, 'a')
-        self.ser = serial.Serial(self.port, 115200)
-        self.ser.write(bytearray([100]))
+        try:
+            self.ser = serial.Serial(self.port, 115200)
+            self.ser.write(bytearray([100]))
+        except:
+            print('error in serial port initialization. continuing.')
+            self.ser = None
         self.stop = Event()
         self.track_thread = Thread(target = self._track, args = (self.ser, self.stop, self.f))
         self.track_thread.start()
@@ -54,6 +58,8 @@ class Pendulum:
                 ser.write(bytearray([0])+struct.pack('>H', int((self.pwr+1)*32768)))
                 sleep(0.02)
                 self.y = np.array(str(ser.readline())[2:-3].split(','), dtype=float)
+            except AttributeError:
+                pass
             except Exception as e:
                 print(e)
                 pass

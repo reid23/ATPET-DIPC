@@ -47,8 +47,9 @@ import scipy as sp
 mpc = get_mpc()
 null = open('/dev/null', 'w')
 start = perf_counter()
+#%%
 def get_power(t, y):
-    mpc.reset_history()
+    # mpc.reset_history()
     sys.stdout = null
     step = mpc.make_step(y)[0, 0]
     sys.stdout = sys.__stdout__

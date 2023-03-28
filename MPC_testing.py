@@ -105,23 +105,26 @@ def get_power(t, y, mpc):
     start = perf_counter()
     mpc.reset_history()
     sys.stdout = null
-    step = mpc.make_step(y)[0, 0]
+    mpc.make_step(y)[0, 0]
     sys.stdout = sys.__stdout__
-    print(step, perf_counter() - start, y, sep='\t')
-    return step
 
 def mpc_loop(power, state, mpc):
     sleep(0.5)
     while True:
-        pwr = -get_power(0, np.array(state), mpc)
-        power.value = pwr
+        get_power(0, np.array(state), mpc)
+        for i in range(mpc.n_horizon):
+            power[i] = mpc.data.prediction(('_u', 'f'))[0][i]
+        ptr.value = 0
 
-def write_to_pend_loop(power, state):
+def write_to_pend_loop(power, state, ptr, t_step):
     with Pendulum.Pendulum(file = '/dev/null') as p:
-        p.set_mode('usb')
-        sleep(0.05)
-        p.set(0)
-        sleep(0.05)
+        try:
+            p.set_mode('usb')
+            sleep(0.05)
+            p.set(0)
+            sleep(0.05)
+        except AttributeError:
+            pass
         try:
             while True:
                 state[0] = p.y[0]
@@ -129,16 +132,23 @@ def write_to_pend_loop(power, state):
                 state[2] = p.y[3]
                 state[3] = p.y[4]
                 # power = -get_power(0, np.array([p.y[0],p.y[1],p.y[3],p.y[4]]), mpc)
-                p.set(float(power.value))
-                sleep(0.02)
+                try:
+                    u = -float(power[ptr.value])
+                    p.set(u)
+                    ptr.value += 1
+                    print(u, *state, sep = '\t', file=sys.__stdout__)
+                except IndexError:
+                    pass
+                sleep(0.95*t_step)
         except KeyboardInterrupt:
             p.set(0)
             print('Stopping.')
 if __name__ == '__main__':
     mpc = get_mpc()
-    power = Value('d', 0)
+    power = Array('d', mpc.n_horizon)
     state = Array('d', 4)
+    ptr = Value('I', 0)
     input('press enter to start balancing')
-    write_thread = Process(target = write_to_pend_loop, args = [power, state])
+    write_thread = Process(target = write_to_pend_loop, args = [power, state, ptr, mpc.t_step])
     write_thread.start()
     mpc_loop(power, state, mpc)
