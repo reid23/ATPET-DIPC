@@ -100,9 +100,9 @@ if __name__ == '__main__':
     power = 0.5
     period = 1.2
     # delay = 0.2
-    with open('SI/data4.txt', 'a') as f:
+    with open('/dev/stdout', 'a') as f:
         print('[', file = f)
-    with Pendulum(file = 'SI/data4.txt') as p:
+    with Pendulum(file = '/dev/stdout') as p:
         p.set(0)
         sleep(1)
         for i in np.arange(0, 20*np.pi, 0.1):
@@ -140,5 +140,5 @@ if __name__ == '__main__':
         # p.set(0)
         # sleep(2)
 
-    with open('SI/data4.txt', 'a') as f:
+    with open('/dev/stdout', 'a') as f:
         print('],', file = f, end = '')

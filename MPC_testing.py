@@ -4,7 +4,8 @@ import do_mpc
 from casadi import *
 from SI import data_collection as Pendulum
 import sys
-from time import sleep
+from time import sleep, perf_counter
+from multiprocessing import Process, Array, Value
 
 #%%
 def get_mpc():
@@ -33,8 +34,8 @@ def get_mpc():
 
     mpc = do_mpc.controller.MPC(model)
 
-    tstep = 0.2
-    thorizon = 2
+    tstep = 0.1
+    thorizon = 5
     nhorizon = int(thorizon/tstep)
     setup_mpc = {
         'n_horizon': nhorizon,
@@ -44,15 +45,15 @@ def get_mpc():
     }
     mpc.set_param(**setup_mpc)
 
-    l_term = 1-sin(y1) + y0**2
-    m_term = 1-sin(y1) + y0**2
+    l_term = 4*cos(y1) + y0**2 + 0.1*dy[0]**2 + 0.1*dy[1]**2 + 0.15*f
+    m_term = 4*cos(y1) + y0**2 + 0.1*dy[0]**2 + 0.1*dy[1]**2
 
     mpc.set_objective(lterm=l_term, mterm=m_term)
-    mpc.set_rterm(f=0.1)
+    # mpc.set_rterm(f=0.05)
 
     # bounds on state:
-    mpc.bounds['lower','_x', 'y_0'] = -0.5
-    mpc.bounds['upper','_x', 'y_0'] = 0.5
+    mpc.bounds['lower','_x', 'y_0'] = -0.4
+    mpc.bounds['upper','_x', 'y_0'] = 0.4
 
     # bounds on input:
     mpc.bounds['lower','_u', 'f'] = -0.5
@@ -68,10 +69,10 @@ def get_mpc():
         # ke = np.array([0.00299, 0.004, 0.002]),
         # kf = np.array([20, 15, 25])
         l = np.array([0.17]),
-        ma = np.array([1]),
+        ma = np.array([0.8]),
         mb = np.array([0.1]),
-        ke = np.array([0.00299]),
-        kf = np.array([20])
+        ke = np.array([0.005]),
+        kf = np.array([25])
     )
     mpc.setup()
 
@@ -81,10 +82,10 @@ def get_mpc():
     p_template = simulator.get_p_template()
     def p_fun(t_now):
         p_template['l'] = 0.17
-        p_template['ma'] = 1
+        p_template['ma'] = 0.8
         p_template['mb'] = 0.1
-        p_template['ke'] = 0.00299
-        p_template['kf'] = 20
+        p_template['ke'] = 0.005
+        p_template['kf'] = 25
         return p_template
 
 
@@ -98,27 +99,46 @@ def get_mpc():
 
     mpc.set_initial_guess()
     return mpc
+
 null = open('/dev/null', 'w')
-def get_power(t, y):
+def get_power(t, y, mpc):
+    start = perf_counter()
     mpc.reset_history()
     sys.stdout = null
     step = mpc.make_step(y)[0, 0]
     sys.stdout = sys.__stdout__
-    print(step, t, sep='\t')
+    print(step, perf_counter() - start, y, sep='\t')
+    return step
 
-if __name__ == '__main__':
-    mpc = get_mpc()
+def mpc_loop(power, state, mpc):
+    sleep(0.5)
+    while True:
+        pwr = -get_power(0, np.array(state), mpc)
+        power.value = pwr
+
+def write_to_pend_loop(power, state):
     with Pendulum.Pendulum(file = '/dev/null') as p:
         p.set_mode('usb')
         sleep(0.05)
         p.set(0)
         sleep(0.05)
-        input('press [enter] to start balancing')
         try:
             while True:
-                print(np.delete(p.y, (2, 5)))
-                p.set(get_power(0, p.y))
-                sleep(0.03)
+                state[0] = p.y[0]
+                state[1] = p.y[1]
+                state[2] = p.y[3]
+                state[3] = p.y[4]
+                # power = -get_power(0, np.array([p.y[0],p.y[1],p.y[3],p.y[4]]), mpc)
+                p.set(float(power.value))
+                sleep(0.02)
         except KeyboardInterrupt:
             p.set(0)
             print('Stopping.')
+if __name__ == '__main__':
+    mpc = get_mpc()
+    power = Value('d', 0)
+    state = Array('d', 4)
+    input('press enter to start balancing')
+    write_thread = Process(target = write_to_pend_loop, args = [power, state])
+    write_thread.start()
+    mpc_loop(power, state, mpc)

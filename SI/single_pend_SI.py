@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from sim.single_pendulum_model import dipc_model
 import scipy
 from time import perf_counter
-# from numba import njit
+from numba import njit
 #%%
 with open('data4.txt', 'r') as f:
     data = list(map(np.array, eval(f.read())))
@@ -21,6 +21,7 @@ for i in range(len(data)):
 
 
 #%%
+@njit
 def single_cost(trial, constants):
     soln = scipy.integrate.solve_ivp(lambda t, y: model.func(y, data[trial][np.searchsorted(data[trial][:, 0], t)-1, 1], *constants).flatten(), (0, data[trial][-1, 0]), data[trial][0, 2:], t_eval = data[trial][:, 0])
     return np.sum((soln.y.T[:, (1,2,3)] - data[trial][:, (3,4,5)])**2)
@@ -81,7 +82,8 @@ if __name__ == '__main__':
     #%%
     # print(cost([0.15, 40, 0.125, 0.125, 1.74242, 0.04926476]))
     #%%
-    # res = scipy.optimize.minimize(fun = cost, x0 = y_0)
+        res = scipy.optimize.minimize(fun = cost, x0 = y_0, args = (p, trials_to_use), options = {'disp': True})
+        print(res)
     # print(res)
     # %%
     # trials=4

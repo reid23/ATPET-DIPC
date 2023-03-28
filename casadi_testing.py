@@ -40,7 +40,8 @@ print(d)
 
 # %%
 func = d.create('f', ['x', 'u', 'p'], ['ode'])
-
+# dae = {'x':y[0], 'theta':y[1], 'dx':dy[0], 'dtheta':dy[1], 'ode':z+p}
+# I = integrator()
 # %%
 import scipy as sp
 mpc = get_mpc()
