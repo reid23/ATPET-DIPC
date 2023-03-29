@@ -96,18 +96,19 @@ def integration_grad_descent():
                     old_time = perf_counter()
                     test = [cur] + [np.insert(np.delete(cur, i), i, cur[i] + dx) for i in range(len(y_0))]
                     d = np.array(p.starmap(single_cost, [(i, j.astype(np.float64)*y_0) for i in trials_to_use for j in test]))
-                    base = d[0]
-                    d = d[1:].reshape((len(trials_to_use), len(y_0)))
+                    d = d.reshape((len(trials_to_use), len(test)))
+                    d = np.sum(d, axis=0)
+                    d = d[1:] - d[0]
 
-                    if base > 1_000_000_000: print(f'died, final cost was {base} with weights {cur}')
-                    if base < best_cost:
-                        best_cost = base
+
+                    if d[0] > 1_000_000_000: print(f'died, final cost was {d[0]} with weights {cur}')
+                    if d[0] < best_cost:
+                        best_cost = d[0]
                         best_coeffs = cur
                     print('[', *[np.format_float_positional(i, 5) for i in cur*y_0], ']',
-                        np.round(base, 1), 
+                        np.round(d[0], 1), 
                         np.round(perf_counter()-old_time, 3), sep='\t')
                     #print(d, test)
-                    d = np.sum(d, axis=0) - base
                     # d = np.array(p.starmap(cost_single_threaded, [(test[i], trials_to_use) for i in range(len(test))])) - base
                     # for i in range(len(y_0)):
                     #     test = cur.copy()
@@ -128,7 +129,7 @@ if __name__ == '__main__':
 
     best_coeffs = integration_grad_descent()
 
-    
+    # [	0.16022	0.70847	0.08638	0.00229	19.0724	
     #%%
     # print(cost([0.15, 40, 0.125, 0.125, 1.74242, 0.04926476]))
     #%%
