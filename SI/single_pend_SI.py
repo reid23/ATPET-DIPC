@@ -24,6 +24,10 @@ dydot = [
     (296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]-((l*mb*(-9.8*l*mb*sin(y[1])-(l*mb*(296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]+l*mb*(dy[1]**2)*sin(y[1])))*cos(y[1])))/((-((l**2)*(mb**2)*(cos(y[1])**2))/(ma+mb))+(l**2)*mb)) + l*mb*(dy[1]**2)*sin(y[1]))/(ma+mb),
     ((-9.8*l*mb*sin(y[1]))-((l*mb*(296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]+l*mb*(dy[1]**2)*sin(y[1])))/(ma+mb)))/((-((l**2)*(mb**2)*(cos(y[1])**2))/(ma+mb))+(l**2)*mb)
 ]
+dydot = [
+        (-296.296296296296*pi*ke*(-ke*dy[0] + 12*f) - kf*dy[0] - l*mb*(-9.8*l*mb*sin(y[1]) - l*mb*(-296.296296296296*pi*ke*(-ke*dy[0] + 12*f) - kf*dy[0] + l*mb*dy[1]**2*sin(y[1]))*cos(y[1])/(ma + mb))*cos(y[1])/(-l**2*mb**2*cos(y[1])**2/(ma + mb) + l**2*mb) + l*mb*dy[1]**2*sin(y[1]))/(ma + mb), 
+        (-9.8*l*mb*sin(y[1]) - l*mb*(-296.296296296296*pi*ke*(-ke*dy[0] + 12*f) - kf*dy[0] + l*mb*dy[1]**2*sin(y[1]))*cos(y[1])/(ma + mb))/(-l**2*mb**2*cos(y[1])**2/(ma + mb) + l**2*mb)
+]
 
 d.add_ode('xdot', ydot[0])
 d.add_ode('thetadot', ydot[1])
@@ -94,7 +98,7 @@ def integration_grad_descent():
                     d = np.array(p.starmap(single_cost, [(i, j.astype(np.float64)*y_0) for i in trials_to_use for j in test]))
                     base = d[0]
                     d = d[1:].reshape((len(trials_to_use), len(y_0)))
-                    
+
                     if base > 1_000_000_000: print(f'died, final cost was {base} with weights {cur}')
                     if base < best_cost:
                         best_cost = base
