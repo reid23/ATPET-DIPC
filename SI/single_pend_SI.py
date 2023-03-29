@@ -5,6 +5,40 @@ import matplotlib.pyplot as plt
 from sim.single_pendulum_model import dipc_model
 import scipy
 from time import perf_counter
+
+from casadi import DaeBuilder, sin, cos, pi, integrator, vertcat
+
+d = DaeBuilder()
+l = d.add_p('l')
+ma = d.add_p('ma')
+mb = d.add_p('mb')
+ke = d.add_p('ke')
+kf = d.add_p('kf')
+f = d.add_u('f')
+
+y = [d.add_x('x'), d.add_x('theta')]
+dy = [d.add_x('dx'), d.add_x('dtheta')]
+
+ydot = dy
+dydot = [
+    (296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]-((l*mb*(-9.8*l*mb*sin(y[1])-(l*mb*(296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]+l*mb*(dy[1]**2)*sin(y[1])))*cos(y[1])))/((-((l**2)*(mb**2)*(cos(y[1])**2))/(ma+mb))+(l**2)*mb)) + l*mb*(dy[1]**2)*sin(y[1]))/(ma+mb),
+    ((-9.8*l*mb*sin(y[1]))-((l*mb*(296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]+l*mb*(dy[1]**2)*sin(y[1])))/(ma+mb)))/((-((l**2)*(mb**2)*(cos(y[1])**2))/(ma+mb))+(l**2)*mb)
+]
+
+d.add_ode('xdot', ydot[0])
+d.add_ode('thetadot', ydot[1])
+d.add_ode('dxdot', dydot[0])
+d.add_ode('dthetadot', dydot[1])
+
+d.set_start('x', 0)
+d.set_start('theta', pi/2)
+d.set_start('dx', 0)
+d.set_start('dtheta', 0)
+
+print(d)
+
+func = d.create('f', ['x', 'u', 'p'], ['ode'])
+
 # from numba import njit
 #%%
 with open('data4.txt', 'r') as f:
@@ -21,13 +55,13 @@ for i in range(len(data)):
 
 
 #%%
-# @njit
+# @njit(nopython=False)
 def single_cost(trial, constants):
-    soln = scipy.integrate.solve_ivp(lambda t, y: model.func(y, data[trial][np.searchsorted(data[trial][:, 0], t)-1, 1], *constants).flatten(), (0, data[trial][-1, 0]), data[trial][0, 2:], t_eval = data[trial][:, 0])
+    soln = scipy.integrate.solve_ivp(lambda t, y: np.array(func(y, data[trial][np.searchsorted(data[trial][:, 0], t)-1, 1], constants)).flatten(), (0, data[trial][-1, 0]), data[trial][0, 2:], t_eval = data[trial][:, 0])
     return np.sum((soln.y.T[:, (1,2,3)] - data[trial][:, (3,4,5)])**2)
 
 def cost(consts, pool, trials_to_use=[0]):
-    return sum(pool.starmap(single_cost, [(i, consts) for i in trials_to_use]))
+    return sum(np.array(pool.starmap(single_cost, [(i, consts) for i in trials_to_use])))
     error = 0
     for counter, trial in enumerate([data[0]]):
         model.integrate_with_scipy(y_0 = trial[0, 2:], controller=lambda t: powers3(t, powers[counter]), tspan = max(trial[:, 0]), constants = consts)
@@ -36,7 +70,7 @@ def cost(consts, pool, trials_to_use=[0]):
     return error
 
 def cost_single_threaded(consts, trials_to_use):
-    return sum(map(lambda x: single_cost(x, consts), trials_to_use))
+    return sum(map(lambda x: single_cost(x, consts.astype(np.float64)), trials_to_use))
 
 def cost_no_integration(consts, data):
     model.func(data[:, 2:], data[:, 1], *consts)
@@ -44,42 +78,44 @@ def cost_no_integration(consts, data):
 def integration_grad_descent():
                 #    L   ma  mb      K_E   K_f
     # y_0 = np.array([0.22, 1, 0.12, 0.00299, 22])
-    y_0 = np.array([0.22, 1, 0.12, 0.005, 1])
-    cur = y_0.copy()
+    y_0 = np.array([0.17, 0.8, 0.1, 0.00299, 25])
+    cur = y_0/y_0
     dx = 0.01
-    step = 0.01
+    step = 0.005
     old_time = perf_counter()
     best_cost = np.Inf
     best_coeffs = y_0
-    trials_to_use=[0,3,4,5,7,9,10,11,12,13] # [1,2,6,8]
+    print(len(data))
+    trials_to_use=[0,3,4,5,7,9,10,11,12] # not [1,2,6,8]
     with Pool(len(y_0)*len(trials_to_use)) as p:
         try:
             print('here')
             for i in range(10):
                 step_scale = 0.5**i
                 for _ in range(500):
-                    base = cost(cur, p, trials_to_use)
+                    base = cost(cur*y_0, p, trials_to_use)
                     if base > 1_000_000_000: 
                         print(f'died, final cost was {base} with weights {cur}')
                         break
                     if base < best_cost:
                         best_cost = base
                         best_coeffs = cur
-                    print('[', *[np.format_float_positional(i, 5) for i in cur], ']',
+                    print('[', *[np.format_float_positional(i, 5) for i in cur*y_0], ']',
                         np.round(base, 1), 
                         np.round(perf_counter()-old_time, 3), sep='\t')
                     d = np.zeros(len(y_0))
                     old_time = perf_counter()
-                    test = [np.insert(np.delete(cur.copy(), i), i, cur[i] + y_0[i]*dx) for i in range(len(y_0))]
-                    d = np.array(p.starmap(single_cost, [(i, j) for i in trials_to_use for j in test])).reshape((len(trials_to_use), len(y_0)))
-                    d = np.sum(d**2, axis=0) - base
+                    test = [np.insert(np.delete(cur*y_0, i), i, (cur*y_0)[i] + dx) for i in range(len(y_0))]
+                    d = np.array(p.starmap(single_cost, [(i, j.astype(np.float64)) for i in trials_to_use for j in test])).reshape((len(trials_to_use), len(y_0)))
+                    #print(d, test)
+                    d = np.sum(d, axis=0) - base
                     # d = np.array(p.starmap(cost_single_threaded, [(test[i], trials_to_use) for i in range(len(test))])) - base
                     # for i in range(len(y_0)):
                     #     test = cur.copy()
                     #     test[i] += dx*y_0[i]
                     #     d[i] = (cost(test, p, trials_to_use) - base)
                     d = d/np.linalg.norm(d)
-                    # print('d: ', d)
+                    # print('d: ', d, 'step: ', step_scale*d*step)
                     # print('step: ', step_scale*d*step)
                     cur -= step_scale*d*step
                     cur[cur<0] = 0.00005
