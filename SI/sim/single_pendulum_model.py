@@ -75,10 +75,16 @@ class dipc_model:
         self.bodies = (self.track, self.cart, self.top_pend)
 
         self.F = dynamicsymbols('F')
-        #                                    k_E        *          I                 - friction
-        #                              k_E    *   (V_actual        /      R_armature)   - friction
-        #                         ((k_E * (V_applied - k_E   *   w))   /  R_armature) - k_f  *   w
-        self.cart.apply_force(((16*sp.pi/0.06)*(self.kE*(12*self.F - self.kE * self.y[2])/self.R_a) - self.kF * self.y[2])*self.cart.x)
+        #                                    k_E        *          I
+        #                              k_E    *   (V_actual        /      R_armature)
+        #                         ((k_E * (V_applied - k_E   *   w))   /  R_armature)
+        self.cart.apply_force(((16*sp.pi/0.06)*(self.kE*(12*self.F - self.kE * self.y[2])/self.R_a))*self.cart.x)
+
+        # friction
+        a=15.073
+        b=130537*0.0004
+        c=8.01886
+        self.cart.apply_force(-self.kF*(a*sp.tanh(b*self.y[2]) - a*sp.tanh(11*self.y[2]) + c*sp.asinh(10*self.y[2]))*self.cart.x)
 
         # gravity
         # self.cart.apply_force(-self.track.y*self.cart.mass*self.g)
@@ -157,7 +163,7 @@ class dipc_model:
         def func_for_scipy(t, x):
             if remember_forces:
                 # ((16*sp.pi/0.06)*(self.kE*(12*self.F - self.kE * self.y[2])/self.R_a) - self.kF * self.y[2])*self.cart.x
-                forces.append([t, ctrl(t, targets[0] - x), (16*np.pi/0.06)*(constants[-2]*(12*ctrl(t, x[2]) - constants[-2]*x[2])/self.R_a) - constants[-1]*((1/8)*sp.asinh(10*x[2]))])# + 2*x[2]])
+                forces.append([t, ctrl(t, targets[0] - x), (16*np.pi/0.06)*(constants[-2]*(12*ctrl(t, x[2]) - constants[-2]*x[2])/self.R_a)])# + 2*x[2]])
                 return self.func(x, forces[-1][1], *constants).flatten()
             else:
                 return self.func(x, ctrl(t, x), *constants).flatten()
@@ -240,6 +246,8 @@ if __name__ == '__main__':
     model.construct_PP(eigs).construct_LQR(Q, R)
     print(model.get_eigs('PP')[0])
     print(model.B@model.K['PP'])
+    model.set_constants()
+    print(model.ydot)
     # print(model.K['PP'])
     model.integrate_with_scipy(
         y_0 = [0, (7/8)*np.pi, 0, 0], 

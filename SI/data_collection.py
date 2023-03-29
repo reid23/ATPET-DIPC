@@ -65,7 +65,7 @@ class Pendulum:
                 pass
             if not file is None: 
                 # print(self.y)
-                print([perf_counter_ns()-self.start, self.pwr]+list(map(lambda x: round(x, 5), self.y)), end=',\n', file = file)
+                print(*([perf_counter_ns()-self.start, round(self.pwr, 3)]+list(map(lambda x: np.format_float_positional(x, precision=5, trim='k'), self.y))), sep = '\t', end=',\n', file = file)
     def set(self, power):
         """sets power to given value, accounting for deadband
 
@@ -111,10 +111,15 @@ if __name__ == '__main__':
     with Pendulum(file = '/dev/stdout') as p:
         p.set(0)
         sleep(1)
-        for i in np.arange(0, 20*np.pi, 0.1):
-            # print(np.sin(i)/5)
-            p.set((np.sin(i)/2 + 0.5*np.sin(2*i))*0.666*power)
-            sleep(period/(2*np.pi/0.1))
+        p.set(0.2)
+        sleep(10)
+        # 0.2: 0.2 (1 kg lift)
+        # 0.32N for 0.2 power
+        
+        # for i in np.arange(0, 20*np.pi, 0.1):
+        #     # print(np.sin(i)/5)
+        #     p.set((np.sin(i)/2 + 0.5*np.sin(2*i))*0.666*power)
+        #     sleep(period/(2*np.pi/0.1))
         p.set(0)
         sleep(1)
         # def print_add(joy):

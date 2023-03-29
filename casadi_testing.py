@@ -1,8 +1,9 @@
 #%%
-from casadi import *
+from casadi import DaeBuilder, sin, cos, pi, integrator, vertcat
 import numpy as np
 from time import perf_counter
 from MPC_testing import get_mpc
+import sys
 
 d = DaeBuilder()
 l = d.add_p('l')
@@ -40,8 +41,22 @@ print(d)
 
 # %%
 func = d.create('f', ['x', 'u', 'p'], ['ode'])
-# dae = {'x':y[0], 'theta':y[1], 'dx':dy[0], 'dtheta':dy[1], 'ode':z+p}
-# I = integrator()
+x = vertcat(
+    y[0],
+    y[1],
+    dy[0],
+    dy[1]
+)
+ode = vertcat(
+    ydot[0],
+    ydot[1],
+    dydot[0],
+    dydot[1]
+)
+# dae = SXFunction(daeIn(x=[y[0], y[1], dy[0], dy[1]]), daeOut(ode=func))
+# dae = {'x':x, 'ode':ode}
+# i = integrator('i', 'idas', dae, {'l':l, 'ma':ma, 'mb':mb, 'ke':ke, 'kf':kf, 'f':f})
+# # I = integrator()
 # %%
 import scipy as sp
 mpc = get_mpc()
@@ -55,6 +70,7 @@ def get_power(t, y):
     sys.stdout = sys.__stdout__
     print(t, step, perf_counter()-start, sep='\t')
     return step
+
 consts = [0.22, 1, 0.12, 0.00299,  22]
 K = np.array([1.1832159566007476, 4.373058536495648, 1.0524256130913159, 0.9350445494914013])
 # K = np.array([-5.1728044235924315, 1.6984511727579807, -1.1415374803753107, 0.20032634799088658])
