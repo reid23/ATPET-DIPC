@@ -98,15 +98,16 @@ def integration_grad_descent():
                     d = np.array(p.starmap(single_cost, [(i, j.astype(np.float64)*y_0) for i in trials_to_use for j in test]))
                     d = d.reshape((len(trials_to_use), len(test)))
                     d = np.sum(d, axis=0)
-                    d = d[1:] - d[0]
+                    base = d[0]
+                    d = d[1:] - base
 
 
-                    if d[0] > 1_000_000_000: print(f'died, final cost was {d[0]} with weights {cur}')
-                    if d[0] < best_cost:
-                        best_cost = d[0]
+                    if base > 1_000_000_000: print(f'died, final cost was {base} with weights {cur}')
+                    if base < best_cost:
+                        best_cost = base
                         best_coeffs = cur
                     print('[', *[np.format_float_positional(i, 5) for i in cur*y_0], ']',
-                        np.round(d[0], 1), 
+                        np.round(base, 1), 
                         np.round(perf_counter()-old_time, 3), sep='\t')
                     #print(d, test)
                     # d = np.array(p.starmap(cost_single_threaded, [(test[i], trials_to_use) for i in range(len(test))])) - base
