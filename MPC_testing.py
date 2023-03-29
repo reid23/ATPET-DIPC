@@ -25,10 +25,10 @@ def get_mpc():
         (296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]-((l*mb*(-9.8*l*mb*sin(y1)-(l*mb*(296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]+l*mb*(dy[1]**2)*sin(y1)))*cos(y1)))/((-((l**2)*(mb**2)*(cos(y1)**2))/(ma+mb))+(l**2)*mb)) + l*mb*(dy[1]**2)*sin(y1))/(ma+mb),
         ((-9.8*l*mb*sin(y1))-((l*mb*(296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]+l*mb*(dy[1]**2)*sin(y1)))/(ma+mb)))/((-((l**2)*(mb**2)*(cos(y1)**2))/(ma+mb))+(l**2)*mb)
     )
-    # expr = vertcat(
-    #    (296.296296296296*pi*k_E*(-k_E*y2(t) + 12*F(t)) - k_F*(-15.1548*tanh(20*y2(t)) + 15.1548*tanh(18297.8*y2(t)) + 5.688*asinh(25*y2(t))) - l*m_b*(-9.8*l*m_b*sin(y1(t)) - l*m_b*(296.296296296296*pi*k_E*(-k_E*y2(t) + 12*F(t)) - k_F*(-15.1548*tanh(20*y2(t)) + 15.1548*tanh(18297.8*y2(t)) + 5.688*asinh(25*y2(t))) + l*m_b*y3(t)**2*sin(y1(t)))*cos(y1(t))/(m_a + m_b))*cos(y1(t))/(-l**2*m_b**2*cos(y1(t))**2/(m_a + m_b) + l**2*m_b) + l*m_b*y3(t)**2*sin(y1(t)))/(m_a + m_b),
-    #    (-9.8*l*m_b*sin(y1(t)) - l*m_b*(296.296296296296*pi*k_E*(-k_E*y2(t) + 12*F(t)) - k_F*(-15.1548*tanh(20*y2(t)) + 15.1548*tanh(18297.8*y2(t)) + 5.688*asinh(25*y2(t))) + l*m_b*y3(t)**2*sin(y1(t)))*cos(y1(t))/(m_a + m_b))/(-l**2*m_b**2*cos(y1(t))**2/(m_a + m_b) + l**2*m_b)
-    # )
+    expr = vertcat(
+        (-296.296296296296*pi*ke*(-ke*dy[0] + 12*F(t)) - kf*dy[0] - l*mb*(-9.8*l*mb*sin(y[1]) - l*mb*(-296.296296296296*pi*ke*(-ke*dy[0] + 12*F(t)) - kf*dy[0] + l*mb*dy[1]**2*sin(y[1]))*cos(y[1])/(ma + mb))*cos(y[1])/(-l**2*mb**2*cos(y[1])**2/(ma + mb) + l**2*mb) + l*mb*dy[1]**2*sin(y[1]))/(ma + mb), 
+        (-9.8*l*mb*sin(y[1]) - l*mb*(-296.296296296296*pi*ke*(-ke*dy[0] + 12*F(t)) - kf*dy[0] + l*mb*dy[1]**2*sin(y[1]))*cos(y[1])/(ma + mb))/(-l**2*mb**2*cos(y[1])**2/(ma + mb) + l**2*mb)
+    )
     #%%
     model.set_rhs('y_0', dy[0])
     model.set_rhs('y_1', dy[1])
@@ -74,17 +74,18 @@ def get_mpc():
     # scaling
     mpc.scaling['_x', 'y_0'] = 10
 
+    # 0.16043	0.7101	0.08698	0.00230	19.14743
     mpc.set_uncertainty_values(
         # l = np.array([0.17, 0.15, 0.2]),
         # ma = np.array([1]),
         # mb = np.array([0.1, 0.13]),
         # ke = np.array([0.00299, 0.004, 0.002]),
         # kf = np.array([20, 15, 25])
-        l = np.array([0.17]),
-        ma = np.array([0.8]),
-        mb = np.array([0.05]),
-        ke = np.array([0.005]),
-        kf = np.array([25])
+        l = np.array([0.16043]),
+        ma = np.array([0.7101]),
+        mb = np.array([0.08698]),
+        ke = np.array([0.0023]),
+        kf = np.array([19.14743])
     )
     mpc.setup()
 
@@ -111,7 +112,7 @@ def get_mpc():
     mpc.x0 = x0
 
     mpc.set_initial_guess()
-    mpc.compile_nlp(overwrite=True) #set overwrite to true if things changed
+    mpc.compile_nlp(overwrite =  False) #set overwrite to true if things changed
     return mpc
 
 null = open('/dev/null', 'w')
@@ -152,7 +153,7 @@ def write_to_pend_loop(power, state, ptr, t_step):
                 # power = -get_power(0, np.array([p.y[0],p.y[1],p.y[3],p.y[4]]), mpc)
                 try:
                     u = float(power[ptr.value])
-                    p.set(-u)
+                    p.set(u)
                     ptr.value += 1
                     print(u, *state, sep = '\t', file=sys.__stdout__)
                 except IndexError:

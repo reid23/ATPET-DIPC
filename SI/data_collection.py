@@ -111,11 +111,11 @@ if __name__ == '__main__':
     with Pendulum(file = '/dev/stdout') as p:
         p.set(0)
         sleep(1)
-        p.set(0.2)
+        p.set(0.1)
         sleep(10)
         # 0.2: 0.2 (1 kg lift)
         # 0.32N for 0.2 power
-        
+
         # for i in np.arange(0, 20*np.pi, 0.1):
         #     # print(np.sin(i)/5)
         #     p.set((np.sin(i)/2 + 0.5*np.sin(2*i))*0.666*power)

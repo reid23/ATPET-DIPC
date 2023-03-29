@@ -66,7 +66,7 @@ class dipc_model:
         self.cart = Body('C', mass=self.ma)
         self.top_pend = Body('P_1', mass=self.mb)
 
-        self.slider = PrismaticJoint('slider', self.track, self.cart, coordinates=self.y[0], speeds=self.y[2])
+        self.slider = PrismaticJoint('slider', self.track, self.cart, coordinates = self.y[0], speeds = self.y[2], parent_axis = self.track.x)
         self.rev1 = PinJoint('r1', self.cart, self.top_pend, coordinates=self.y[1], speeds=self.y[3],
                         child_axis=self.top_pend.z, child_joint_pos=self.l*self.top_pend.y,
                         parent_axis=self.cart.z)
@@ -78,13 +78,14 @@ class dipc_model:
         #                                    k_E        *          I
         #                              k_E    *   (V_actual        /      R_armature)
         #                         ((k_E * (V_applied - k_E   *   w))   /  R_armature)
-        self.cart.apply_force(((16*sp.pi/0.06)*(self.kE*(12*self.F - self.kE * self.y[2])/self.R_a))*self.cart.x)
+        self.cart.apply_force(-((16*sp.pi/0.06)*(self.kE*(12*self.F - self.kE * self.y[2])/self.R_a))*self.cart.x)
 
         # friction
         a=15.073
         b=130537*0.0004
         c=8.01886
-        self.cart.apply_force(-self.kF*(a*sp.tanh(b*self.y[2]) - a*sp.tanh(11*self.y[2]) + c*sp.asinh(10*self.y[2]))*self.cart.x)
+        # self.cart.apply_force(-self.kF*(a*sp.tanh(b*self.y[2]) - a*sp.tanh(11*self.y[2]) + c*sp.asinh(10*self.y[2]))*self.cart.x)
+        self.cart.apply_force(-self.kF*self.y[2]*self.cart.x)
 
         # gravity
         # self.cart.apply_force(-self.track.y*self.cart.mass*self.g)
@@ -239,23 +240,23 @@ if __name__ == '__main__':
         [-3.53],
     ])
 
-    Q = np.diag([100, 10, 1, 100])
-    R = np.diag([10])
+    Q = np.diag([10, 100, 10, 50])
+    R = np.diag([100])
     model = dipc_model().linearize().lambdify()
     print(repr(model.A), '\n\n', repr(model.B))
     model.construct_PP(eigs).construct_LQR(Q, R)
     print(model.get_eigs('PP')[0])
     print(model.B@model.K['PP'])
-    model.set_constants()
+    model.set_constants([0.22, 1, 0.12, 0.00299,  22])
     print(model.ydot)
     # print(model.K['PP'])
     model.integrate_with_scipy(
         y_0 = [0, (7/8)*np.pi, 0, 0], 
         targets = np.array([[  0, np.pi, 0, 0],
                             [0.5, np.pi, 0, 0]]),
-                            controller = 'PP', lag_seconds=0.0165)
+                            controller = 'LQR', lag_seconds=0.0165)
     
-    print(model.soln_y[:, :10].T)
+    print(model.soln(np.arange(0, 15, 0.1)))
     # model.print_eoms()
     # normal = model.ydot.subs(zip([model.lb, model.c, model.g, model.ma, model.mb, model.IBzz], model.constants))
     # print(normal)
@@ -263,6 +264,10 @@ if __name__ == '__main__':
     # ics=dict(zip([i.subs(model.t, 0) for i in model.y]+[i.subs(model.t, 1.5) for i in model.y],[0, 0, 0, 0, 0, 0]+[0,sp.pi,0,0,0,0]))))
     # print(systems.dsolve_system([sp.Eq(model.y[i].diff(model.t), normal[i]) for i in range(4)]))
     #%%
+    model.soln_t = np.arange(0, 15, 0.1)
+    model.soln_y = model.soln(model.soln_t)
+    model.soln_forces = np.concatenate((model.soln_t[np.newaxis, :], model.K['LQR']@model.soln_y), axis=0).T
     model.plot_graph()
     model.plot_animation(['tab:blue', 'tab:orange', 'tab:blue'], [0, 5, 10])
     model.show_plots()
+# %%

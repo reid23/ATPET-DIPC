@@ -16,11 +16,22 @@ f = d.add_u('f')
 y = [d.add_x('x'), d.add_x('theta')]
 dy = [d.add_x('dx'), d.add_x('dtheta')]
 
-ydot = dy
+ydot = [dy[0], dy[1]]
 dydot = [
-    (296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]-((l*mb*(-9.8*l*mb*sin(y[1])-(l*mb*(296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]+l*mb*(dy[1]**2)*sin(y[1])))*cos(y[1])))/((-((l**2)*(mb**2)*(cos(y[1])**2))/(ma+mb))+(l**2)*mb)) + l*mb*(dy[1]**2)*sin(y[1]))/(ma+mb),
+    ((296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]-((l*mb*(-9.8*l*mb*sin(y[1])-(l*mb*(296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]+l*mb*(dy[1]**2)*sin(y[1])))*cos(y[1])))/((-((l**2)*(mb**2)*(cos(y[1])**2))/(ma+mb))+(l**2)*mb)) + l*mb*(dy[1]**2)*sin(y[1]))/(ma+mb)),
     ((-9.8*l*mb*sin(y[1]))-((l*mb*(296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]+l*mb*(dy[1]**2)*sin(y[1])))/(ma+mb)))/((-((l**2)*(mb**2)*(cos(y[1])**2))/(ma+mb))+(l**2)*mb)
 ]
+
+dydot = [
+        (-296.296296296296*pi*ke*(-ke*dy[0] + 12*f) - kf*dy[0] - l*mb*(-9.8*l*mb*sin(y[1]) - l*mb*(-296.296296296296*pi*ke*(-ke*dy[0] + 12*f) - kf*dy[0] + l*mb*dy[1]**2*sin(y[1]))*cos(y[1])/(ma + mb))*cos(y[1])/(-l**2*mb**2*cos(y[1])**2/(ma + mb) + l**2*mb) + l*mb*dy[1]**2*sin(y[1]))/(ma + mb), 
+        (-9.8*l*mb*sin(y[1]) - l*mb*(-296.296296296296*pi*ke*(-ke*dy[0] + 12*f) - kf*dy[0] + l*mb*dy[1]**2*sin(y[1]))*cos(y[1])/(ma + mb))/(-l**2*mb**2*cos(y[1])**2/(ma + mb) + l**2*mb)
+]
+
+
+# dydot = [
+#         (296.296296296296*pi*ke*(-ke*-dy[0]+12*f)-kf*-dy[0]-((l*mb*(-9.8*l*mb*sin(y[1])-(l*mb*(296.296296296296*pi*ke*(-ke*-dy[0]+12*f)-kf*-dy[0]+l*mb*(dy[1]**2)*sin(y[1])))*cos(y[1])))/((-((l**2)*(mb**2)*(cos(y[1])**2))/(ma+mb))+(l**2)*mb)) + l*mb*(dy[1]**2)*sin(y[1]))/(ma+mb),
+#         -((-9.8*l*mb*sin(y[1]))-((l*mb*(296.296296296296*pi*ke*(-ke*-dy[0]+12*f)-kf*-dy[0]+l*mb*(dy[1]**2)*sin(y[1])))/(ma+mb)))/((-((l**2)*(mb**2)*(cos(y[1])**2))/(ma+mb))+(l**2)*mb)
+# ]
 
 d.add_ode('xdot', ydot[0])
 d.add_ode('thetadot', ydot[1])

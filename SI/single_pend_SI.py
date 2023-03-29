@@ -39,7 +39,6 @@ print(d)
 
 func = d.create('f', ['x', 'u', 'p'], ['ode'])
 
-# from numba import njit
 #%%
 with open('data4.txt', 'r') as f:
     data = list(map(np.array, eval(f.read())))
@@ -55,7 +54,6 @@ for i in range(len(data)):
 
 
 #%%
-# @njit(nopython=False)
 def single_cost(trial, constants):
     soln = scipy.integrate.solve_ivp(lambda t, y: np.array(func(y, data[trial][np.searchsorted(data[trial][:, 0], t)-1, 1], constants)).flatten(), (0, data[trial][-1, 0]), data[trial][0, 2:], t_eval = data[trial][:, 0])
     return np.sum((soln.y.T[:, (1,2,3)] - data[trial][:, (3,4,5)])**2)
@@ -72,9 +70,6 @@ def cost(consts, pool, trials_to_use=[0]):
 def cost_single_threaded(consts, trials_to_use):
     return sum(map(lambda x: single_cost(x, consts.astype(np.float64)), trials_to_use))
 
-def cost_no_integration(consts, data):
-    model.func(data[:, 2:], data[:, 1], *consts)
-
 def integration_grad_descent():
                 #    L   ma  mb      K_E   K_f
     # y_0 = np.array([0.22, 1, 0.12, 0.00299, 22])
@@ -87,26 +82,26 @@ def integration_grad_descent():
     best_coeffs = y_0
     print(len(data))
     trials_to_use=[0,3,4,5,7,9,10,11,12] # not [1,2,6,8]
-    with Pool(len(y_0)*len(trials_to_use)) as p:
+    with Pool(len(y_0)*len(trials_to_use) + 1) as p:
         try:
             print('here')
             for i in range(10):
                 step_scale = 0.5**i
                 for _ in range(500):
-                    base = cost(cur*y_0, p, trials_to_use)
-                    if base > 1_000_000_000: 
-                        print(f'died, final cost was {base} with weights {cur}')
-                        break
+                    d = np.zeros(len(y_0))
+                    old_time = perf_counter()
+                    test = [cur] + [np.insert(np.delete(cur, i), i, cur[i] + dx) for i in range(len(y_0))]
+                    d = np.array(p.starmap(single_cost, [(i, j.astype(np.float64)*y_0) for i in trials_to_use for j in test]))
+                    base = d[0]
+                    d = d[1:].reshape((len(trials_to_use), len(y_0)))
+                    
+                    if base > 1_000_000_000: print(f'died, final cost was {base} with weights {cur}')
                     if base < best_cost:
                         best_cost = base
                         best_coeffs = cur
                     print('[', *[np.format_float_positional(i, 5) for i in cur*y_0], ']',
                         np.round(base, 1), 
                         np.round(perf_counter()-old_time, 3), sep='\t')
-                    d = np.zeros(len(y_0))
-                    old_time = perf_counter()
-                    test = [np.insert(np.delete(cur*y_0, i), i, (cur*y_0)[i] + dx) for i in range(len(y_0))]
-                    d = np.array(p.starmap(single_cost, [(i, j.astype(np.float64)) for i in trials_to_use for j in test])).reshape((len(trials_to_use), len(y_0)))
                     #print(d, test)
                     d = np.sum(d, axis=0) - base
                     # d = np.array(p.starmap(cost_single_threaded, [(test[i], trials_to_use) for i in range(len(test))])) - base
