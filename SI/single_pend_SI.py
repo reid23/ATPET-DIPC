@@ -55,6 +55,7 @@ for i in range(len(data)):
     data[i] = data[i][10:-10, (0,1,2,3,5,6)]
     data[i][:, 0] -= data[i][0, 0]
     data[i][:, 0] *= 1e-9
+    data[i][:, 1] *= -1
 
 
 #%%
@@ -78,7 +79,7 @@ def integration_grad_descent():
                 #    L   ma  mb      K_E   K_f
     # y_0 = np.array([0.22, 1, 0.12, 0.00299, 22]) 
     # y_0 = np.array([0.18319, 0.77088, 0.11271, 0.00093, 32.95541])
-    y_0 = np.array([0.17, 0.8, 0.1, 0.00299, 25])
+    y_0 = np.array([0.17, 0.8, 0.1, 0.00299, 20])
     cur = y_0/y_0
     dx = 0.01
     step = 0.005
