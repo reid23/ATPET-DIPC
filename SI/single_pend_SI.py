@@ -76,7 +76,8 @@ def cost_single_threaded(consts, trials_to_use):
 
 def integration_grad_descent():
                 #    L   ma  mb      K_E   K_f
-    # y_0 = np.array([0.22, 1, 0.12, 0.00299, 22])
+    # y_0 = np.array([0.22, 1, 0.12, 0.00299, 22]) 
+    # y_0 = np.array([0.18319, 0.77088, 0.11271, 0.00093, 32.95541])
     y_0 = np.array([0.17, 0.8, 0.1, 0.00299, 25])
     cur = y_0/y_0
     dx = 0.01
@@ -155,7 +156,7 @@ if __name__ == '__main__':
     model = dipc_model().lambdify()
     model.set_constants(best_coeffs)
 
-    print('here')
+    print('here', best_coeffs)
     for i in range(trials):
         model.integrate_with_scipy(y_0 = data[i][0, 2:], controller=lambda t: data[i][np.searchsorted(data[i][:, 0], t)-1, 1], tspan = max(data[i][:, 0]), remember_forces = True)
         print(f'applied power: {max(model.soln_forces[:, 1])}, actual force: {max(model.soln_forces[:, 2])}')

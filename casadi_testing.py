@@ -39,7 +39,7 @@ d.add_ode('dxdot', dydot[0])
 d.add_ode('dthetadot', dydot[1])
 
 d.set_start('x', 0)
-d.set_start('theta', pi/2)
+d.set_start('theta', 0)
 d.set_start('dx', 0)
 d.set_start('dtheta', 0)
 
@@ -58,6 +58,7 @@ x = vertcat(
     dy[0],
     dy[1]
 )
+
 ode = vertcat(
     ydot[0],
     ydot[1],
@@ -70,11 +71,13 @@ ode = vertcat(
 # # I = integrator()
 # %%
 import scipy as sp
-mpc = get_mpc()
+mpc, sim, _ = get_mpc()
 null = open('/dev/null', 'w')
 start = perf_counter()
+
 #%%
 def get_power(t, y):
+    start = perf_counter()
     # mpc.reset_history()
     sys.stdout = null
     step = mpc.make_step(y)[0, 0]
@@ -82,12 +85,15 @@ def get_power(t, y):
     print(t, step, perf_counter()-start, sep='\t')
     return step
 
-consts = [0.22, 1, 0.12, 0.00299,  22]
+consts = [0.18, 1, 0.12, 0.00299,  22]
+# consts = [0.17, 0.8, 0.1, 0.00299, 25]
 K = np.array([1.1832159566007476, 4.373058536495648, 1.0524256130913159, 0.9350445494914013])
 # K = np.array([-5.1728044235924315, 1.6984511727579807, -1.1415374803753107, 0.20032634799088658])
 target = np.array([0, np.pi, 0, 0])
 y0 = np.array([0, 2*np.pi/8, 0, 0])
-tspan = 5
+sim.x0 = y0
+
+tspan = 8
 # soln = sp.integrate.solve_ivp(lambda t, y: np.array(func(y, (K@(y-target)), consts)).flatten(), y0 = y0, t_span=(0, tspan), dense_output = True)
 soln = sp.integrate.solve_ivp(lambda t, y: np.array(func(y, get_power(t, y), consts)).flatten(), y0 = y0, t_span=(0, tspan), dense_output = True)
 # %%
@@ -99,8 +105,9 @@ plt.plot(t[1:], solutions[1][1:], label='theta')
 plt.plot(t[1:], solutions[2][1:], label='dx')
 plt.xlabel('time (s)')
 plt.ylabel('x (m), theta (rad), $\dot x$ (m/s)')
-plt.title('MPC Controller Simulation')
+plt.title('MPC Controller Simulation With Parameter Noise\n$P_{real}$ = [0.17, 0.8, 0.1, 0.00299, 25]\n$P_{ctrl}$ = [0.18, 1, 0.12, 0.00299,  22]')
 # plt.plot(t[1:], solutions[3][1:], label='dtheta') # don't plot by default bc it looks wonky and kinda big
+mpc.reset_history()
 plt.plot(t[1:], [get_power(0, i) for i in solutions.T][1:], label='u')
 plt.legend()
 plt.show()
