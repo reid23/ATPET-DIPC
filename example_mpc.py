@@ -47,7 +47,8 @@ rcParams['ytick.labelsize'] = 'xx-large'
 
 import time
 
-from MPC_testing import get_mpc
+# from MPC_testing import get_mpc
+from MPC_testing_stepper import get_mpc
 # from template_simulator import template_simulator
 # from template_model import template_model
 
@@ -108,7 +109,7 @@ ax5.set_ylabel('Input force [N]')
 mpc_graphics.add_line(var_type='_aux', var_name='E_kin', axis=ax2)
 mpc_graphics.add_line(var_type='_aux', var_name='E_pot', axis=ax3)
 mpc_graphics.add_line(var_type='_x', var_name='y_0', axis=ax4)
-# mpc_graphics.add_line(var_type='_tvp', var_name='sp', axis=ax4)
+# mpc_graphics.add_line(var_type='_x', var_name='dy', axis=ax5)
 mpc_graphics.add_line(var_type='_u', var_name='f', axis=ax5)
 
 ax1.axhline(0,color='black')
@@ -153,6 +154,7 @@ for k in range(n_steps):
     x0_to_use = x0.pop(0)
     u0 = mpc.make_step(x0_to_use)
     u0 = mpc.data.prediction(('_u', 'f'))[0][0][:, np.newaxis]
+    print(f"{mpc.data.prediction(('_x', 'dy')).T[0]},")
     toc = time.time()
     y_next = simulator.make_step(u0)
     x0.append(estimator.make_step(y_next))
