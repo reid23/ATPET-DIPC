@@ -83,6 +83,11 @@ fn pleb_fn(t: u64) -> Result<f32, &'static str>{
     }
 }
 
+fn set_speed<T: ValidStateMachine>(tx: &mut Tx<T>, level: i32) {
+    // Write duty cycle to TX Fifo
+    tx.write(level);
+}
+
 
 
 static MODE: AtomicU8 = AtomicU8::new(0);
@@ -234,6 +239,34 @@ fn main() -> ! {
 
     // get PIO and state machine for i2c over PIO (since we only have 2 hw i2c drivers)
     let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
+    let (mut pio1, sm1, _, _, _) = pac.PIO1.split(&mut pac.RESETS);
+
+    // Create a pio program
+    let program = pio_file!("steps.pio", select_program("steps_pio"),);
+    let installed = pio1.install(&program.program).unwrap();
+
+    // Set gpio25 to pio
+    let _step: hal::gpio::Pin<_, hal::gpio::FunctionPio1> = pins.gpio6.into_mode();
+    let step_pin_id = 6;
+
+    // Build the pio program and set pin both for set and side set!
+    // We are running with the default divider which is 1 (max speed)
+    let (mut sm, _, mut tx) = PIOBuilder::from_program(installed)
+        .set_pins(step_pin_id, 1)
+        .side_set_pin_base(step_pin_id)
+        .build(sm1);
+
+    // Set pio pindir for gpio25
+    sm.set_pindirs([(step_pin_id, hal::pio::PinDir::Output)]);
+
+    // Start state machine
+    let sm = sm.start();
+
+    // Set period
+    set_speed(sm, &mut tx, 0 as i32);
+
+
+
 
     // set up pio i2c
     let mut cart_i2c = i2c_pio::I2C::new(
