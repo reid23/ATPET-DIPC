@@ -47,7 +47,7 @@ def get_mpc():
     mpc = do_mpc.controller.MPC(model)
 
     tstep = 0.05
-    thorizon = 2
+    thorizon = 4
     nhorizon = int(thorizon/tstep)
     setup_mpc = {
         'n_horizon': nhorizon,
@@ -74,8 +74,8 @@ def get_mpc():
     # l_term = 10*cos(y1) + 0.1*y0**2 + 0.1*dy[0]**2 + 0.1*dy[1]**2 + 0.3*f**2 # step cost
     # m_term = 10*cos(y1) + 0.1*y0**2 + 0.02*dy[0]**2 + 0.5*dy[1]**2 # terminal state cost
     # # m_term = 0*y1
-    l_term = model.aux['E_kin'] - model.aux['E_pot'] + 500*(model.x['y_0'])**2
-    m_term = -model.aux['E_pot']+1000*(model.x['y_0'])**2 # stage cost
+    l_term = model.aux['E_kin'] - 100*model.aux['E_pot'] + 50*(model.x['y_0'])**2
+    m_term = -100*model.aux['E_pot']+100*(model.x['y_0'])**2 # stage cost
 
     mpc.set_objective(lterm=l_term, mterm = m_term)
     mpc.set_rterm(f=100)

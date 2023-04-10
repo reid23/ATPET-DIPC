@@ -1,0 +1,33 @@
+.program steps_pio
+
+; main loop
+.wrap_target
+
+; update osr value if needed
+pull noblock
+; pull osr into x
+; updates value if osr changed
+; otherwise just resets x to 
+; get ready for countdown
+mov x osr
+; two loops: one for high, one for
+; low (we have space for this, and
+; it's the easiest solution)
+loop1:
+    ; decrement x and loop back to
+    ; loop until x==0
+    jmp x-- loop1
+    ; now actually set the pin high
+    set pins 1
+
+; the rest is just the same thing 
+; repeated again to set the pin 
+; low after the timer
+pull noblock
+mov x osr
+
+loop2:
+    jmp x-- loop2
+    set pins 0
+
+.wrap

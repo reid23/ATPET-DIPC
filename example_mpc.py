@@ -154,7 +154,8 @@ for k in range(n_steps):
     x0_to_use = x0.pop(0)
     u0 = mpc.make_step(x0_to_use)
     u0 = mpc.data.prediction(('_u', 'f'))[0][0][:, np.newaxis]
-    print(f"{mpc.data.prediction(('_x', 'dy')).T[0]},")
+    print(f"{u0},")
+    # print({mpc.data.prediction(('_x', 'dy')).T[0]})
     toc = time.time()
     y_next = simulator.make_step(u0)
     x0.append(estimator.make_step(y_next))

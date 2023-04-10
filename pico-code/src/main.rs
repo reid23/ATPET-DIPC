@@ -71,6 +71,8 @@ fn basic_norm(n: &f32) -> Result<f32, &'static str> {
     }
 }
 
+// 5 dir, 6 step
+
 #[allow(unused_variables)]
 fn pleb_fn(t: u64) -> Result<f32, &'static str>{
     //TODO: implement as needed
@@ -84,7 +86,7 @@ fn pleb_fn(t: u64) -> Result<f32, &'static str>{
 
 
 static MODE: AtomicU8 = AtomicU8::new(0);
-static CUR_POWER: AtomicU16 = AtomicU16::new(0);
+static CUR_POWER: AtomicI32 = AtomicI32::new(0);
 static IN_RESET: AtomicBool = AtomicBool::new(false);
 
 /// The USB Device Driver (shared with the interrupt).
