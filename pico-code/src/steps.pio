@@ -1,43 +1,47 @@
-.program steps_pio
-
-; main loop
+; This file assumes 1/25 clock divider
+; 25 is 5_000_000 hz or 0.2us per tick (5 ticks per us)
+.program step
+; program timing: 
+; t = 4 + delay + hi(8) + lo(3) + 1 
+;   = 16+delay ticks (3.2+delay/5 us)
+; this program deals with 1 step and delay
 .wrap_target
+wait 1 irq 3 ; wait for other sm to request a step
 
-; update osr value if needed
-pull noblock
-; pull osr into x
-; updates value if osr changed
-; otherwise just resets x to 
-; get ready for countdown
-mov x osr
-; two loops: one for high, one for
-; low (we have space for this, and
-; it's the easiest solution)
-loop1:
-    ; decrement x and loop back to
-    ; loop until x==0
-    jmp x-- loop1
-    ; now actually set the pin high
-    set pins 1
+pull noblock ; if there's a new step time value, get it
+mov x osr    ; this won't change x if osr is empty
 
-; the rest is just the same thing 
-; repeated again to set the pin 
-; low after the timer
-pull noblock
-mov x osr
+countloop:
+    jmp x-- countloop ; decrement x and loop to waste the correct amt of time
 
-loop2:
-    jmp x-- loop2
-    set pins 0
+set pins 1 [8] ; 7 = 1.4us, min step pulse len is 1 us
+set pins 0 [3]  ; finish the blip, with 5 less delay for [irq, pull, mov, jmp, irq]
+    ; this program will always take 20 ticks to wrap
+
+irq clear 3 ; clear irq that started this blip
 
 .wrap
 
-; % c-sdk {
-; static inline void pio_init(PIO pio, uint sm, uint offset, uint pin) {
-;    pio_gpio_init(pio, pin);
-;    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
-;    pio_sm_config c = pwm_program_get_default_config(offset);
-;    sm_config_set_sideset_pins(&c, pin);
-;    pio_sm_init(pio, sm, offset, &c);
-; }
-; %}
+.program stepcaller
+; this program runs multiple steps using prev program
+; program timing:
+; t = 3 + n_steps*[step[4 + delay + hi(8) + lo(3) + 1]] + (n_steps-1)*3 
+;   = n_steps * [step + 3] 
+;   = n_steps*(delay+19)
+
+.wrap_target
+
+irq wait 2 ; raise irq to get num steps
+pull ; get num steps (cpu sent them)
+mov x osr ; save num steps to x
+
+loop:
+    irq wait 3 ; send 1 step, wait for completion
+    jmp x-- loop [2]; decrease x (it's our loop counter)
+    ; also delay 2 bc irq, pull, mov take 3 before so we want
+    ; 3 total delay for this loop as well
+irq wait 3 ; send 1 final step, no wait afterward!
+; this makes step count accurate (bc do:while isn't for:)
+; and makes us not double-delay after last step
+
+.wrap

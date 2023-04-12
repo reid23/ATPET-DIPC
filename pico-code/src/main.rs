@@ -8,6 +8,7 @@ use embedded_hal::digital::v2::OutputPin;
 use rp_pico::hal::Timer;
 use rp_pico::hal::gpio::{Pin, PullUpInput};
 use rp_pico::hal::gpio::bank0::Gpio11;
+use rp_pico::hal::pio::{PinState, SM1, Running, Interrupt, SM0};
 use rp_pico::hal::prelude::*;
 use rp_pico::hal::pac; // shorter pac alias
 use rp_pico::hal; use rp_pico::hal::timer::Alarm;
@@ -22,7 +23,11 @@ use embedded_hal::prelude::_embedded_hal_blocking_i2c_WriteRead; // actual i2c f
 use fugit::{RateExtU32, ExtU32}; // for .kHz() and similar
 use panic_halt as _; // make sure program halts on panic (need to mention crate for it to be linked)
 use rp_pico::hal::pac::interrupt;
-use core::sync::atomic::{AtomicI32, AtomicU16, AtomicU8, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicI32, AtomicU32, AtomicU16, AtomicU8, AtomicBool, Ordering};
+use hal::pio::PIOBuilder;
+use hal::pio::ValidStateMachine;
+use hal::pio::Tx;
+
 
 // #[derive(Clone, Copy)]
 // enum CtrlMode{
@@ -83,12 +88,34 @@ fn pleb_fn(t: u64) -> Result<f32, &'static str>{
     }
 }
 
-fn set_speed<T: ValidStateMachine>(tx: &mut Tx<T>, level: i32) {
-    // Write duty cycle to TX Fifo
-    tx.write(level);
+
+const STEPS_PER_MM: i32 = 10;
+const PIO_FREQ: u32 = 5_000_000;
+
+
+trait GetPeriod{
+    fn get_period(&self) -> Result<(PinState, u32), &'static str>;
 }
+impl GetPeriod for i32{
+    // takes speed in 0.1mm/s and converts it to period for pio
+    fn get_period(&self) -> Result<(PinState, u32), &'static str>{
+        if self == 0 {return Ok((PinState::Low, u32::MAX))}
+        let dir = if self < &0 {-1} else {1};
+        let speed = PIO_FREQ / (self * dir) as u32;
+        if speed > 20{
+            Ok((if dir == -1 {PinState::Low} 
+                        else {PinState::High}, 
+                speed - 20))
+        } else {
+            Err("Speed too high (took too much of itself lmao)")
+        }
 
-
+    }
+}
+static mut DIR_PIN: Option<Pin<hal::gpio::bank0::Gpio5, OutputPin>> = None;
+static mut TX: Option<Tx<ValidStateMachine<PIO=hal::pac::pio1>>> = None;
+static CART_VEL: AtomicI32 = AtomicI32::new(0); // 0.1 * mm/s 
+static CART_ACC: AtomicI32 = AtomicI32::new(0); // 0.1 * mm/s^2
 
 static MODE: AtomicU8 = AtomicU8::new(0);
 static CUR_POWER: AtomicI32 = AtomicI32::new(0);
@@ -133,6 +160,8 @@ static K: [AtomicI32; 6] = [AtomicI32::new(0),
                             AtomicI32::new(0),
                             AtomicI32::new(0)];
 
+
+
 const CART_M_PER_TICK: f32 = 0.12/4096.0;
 const RADS_PER_TICK: f32 = 2.0*3.14159265358979323/4096.0;
 
@@ -174,20 +203,6 @@ fn main() -> ! {
     );
     
     // ok ok we're done with that funny stuff
-
-    // Init PWMs (idk what this does but it's important)
-    let mut pwm_slices = hal::pwm::Slices::new(pac.PWM, &mut pac.RESETS);
-    
-    // Configure it
-    // we're using hw pwm to drive the victor
-    let pwm = &mut pwm_slices.pwm0;
-    pwm.set_ph_correct();
-    pwm.set_div_int(4u8); // 50 hz = 20, 4 = 238.42 hz (4.19ms period) 0011110100011001 = 1ms, 0111101000000000 = 2ms (nah lets just do 1ms<<1)
-    pwm.enable();
-    
-    // Output channel B on PWM0 to the GPIO1 pin
-    let channel = &mut pwm.channel_b;
-    channel.output_to(pins.gpio1);
     
     // status LED to show that board is on and not broken
     let mut led_pin = pins.led.into_push_pull_output();
@@ -211,7 +226,6 @@ fn main() -> ! {
     
     // turn on the status LED to show the board isn't ded and all the setup worked (probably)
     led_pin.set_high().unwrap();
-    channel.set_duty(0.0.get_duty(&basic_norm));
     
     // Note (safety): This is safe as interrupts haven't been started yet
     unsafe { USB_BUS = Some(usb_bus); }
@@ -238,45 +252,47 @@ fn main() -> ! {
 
 
     // get PIO and state machine for i2c over PIO (since we only have 2 hw i2c drivers)
-    let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
-    let (mut pio1, sm1, _, _, _) = pac.PIO1.split(&mut pac.RESETS);
+    // let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
+    let (mut pio1, sm0, sm1, _, _) = pac.PIO1.split(&mut pac.RESETS);
+    pio1.irq1().enable_sm_interrupt(2);
+    // pio1.irq1()
 
-    // Create a pio program
-    let program = pio_file!("steps.pio", select_program("steps_pio"),);
-    let installed = pio1.install(&program.program).unwrap();
 
-    // Set gpio25 to pio
+    // Create a pio programs
+    let step = pio_file!("steps.pio", select_program("step"),);
+    let stepcaller = pio_file!("stepcaller.pio", select_program("stepcaller"),);
+    let step_installed = pio1.install(&step.program).unwrap();
+    let stepcaller_installed = pio1.install(&stepcaller.program).unwrap();
+
+    // Set gpio6 (step pin) to pio
     let _step: hal::gpio::Pin<_, hal::gpio::FunctionPio1> = pins.gpio6.into_mode();
     let step_pin_id = 6;
 
     // Build the pio program and set pin both for set and side set!
     // We are running with the default divider which is 1 (max speed)
-    let (mut sm, _, mut tx) = PIOBuilder::from_program(installed)
+    let (mut step_sm, _, mut tx0) = PIOBuilder::from_program(step_installed)
         .set_pins(step_pin_id, 1)
         .side_set_pin_base(step_pin_id)
+        .clock_divisor_fixed_point(25, 0)
+        .build(sm0);
+    let (mut stepcaller_sm, _, mut tx1) = PIOBuilder::from_program(stepcaller_installed)
+        .clock_divisor_fixed_point(25, 0)
         .build(sm1);
 
-    // Set pio pindir for gpio25
-    sm.set_pindirs([(step_pin_id, hal::pio::PinDir::Output)]);
+    // Set pio pindir for gpio6
+    step_sm.set_pindirs([(step_pin_id, hal::pio::PinDir::Output)]);
 
     // Start state machine
-    let sm = sm.start();
+    let step_sm = step_sm.start();
+    let stepcaller_sm = stepcaller_sm.start();
+    // setup direction pin
+    let mut dir_pin = pins.gpio5.into_push_pull_output();
 
-    // Set period
-    set_speed(sm, &mut tx, 0 as i32);
-
-
-
-
-    // set up pio i2c
-    let mut cart_i2c = i2c_pio::I2C::new(
-        &mut pio,
-        pins.gpio18,
-        pins.gpio19,
-        sm0,
-        100.kHz(),
-        clocks.system_clock.freq(),
-    );//pac::pio, pac::
+    let (dir, step) = 0.get_period().unwrap_or((0, u32::MAX));
+    unsafe {
+        DIR_PIN = Some(dir_pin);
+        TX = Some(tx);
+    }
 
     // set up first hw i2c for first pendulum
     let top_sda = pins.gpio16.into_mode::<hal::gpio::FunctionI2C>();
@@ -302,8 +318,6 @@ fn main() -> ! {
         &clocks.peripheral_clock,
     );
 
-    channel.set_duty(0.0.get_duty(&basic_norm));
-
     // init variables to track positions
     let (mut cart_rots, mut top_rots, mut end_rots);
     let (mut cart_pos, mut top_pos, mut end_pos) = (0,0,0);
@@ -316,73 +330,42 @@ fn main() -> ! {
     alarm0.schedule(10_000.micros()).unwrap();
     alarm0.enable_interrupt();
     unsafe { ALARM = Some(alarm0); }
-
-
     // Enable the USB interrupt
     unsafe {
         pac::NVIC::unmask(hal::pac::Interrupt::USBCTRL_IRQ);
         pac::NVIC::unmask(hal::pac::Interrupt::TIMER_IRQ_0);
     }
     unsafe { pac::NVIC::unmask(hal::pac::Interrupt::IO_IRQ_BANK0); }
+    unsafe { pac::NVIC::unmask(hal::pac::Interrupt::PIO0_IRQ_0); }
+
 
     // led_pin.set_low().unwrap();
     // delay.delay_ms(1000);
     // led_pin.set_high().unwrap();
 
     loop {
-        
-        let mut cart = [0; 2];
         let mut top = [0; 2];
         let mut end = [0; 2];
-        // if get_status_flag == true{
-        //     let mut status = [0u8; 3];
-        //     cart_i2c
-        //         .exec(0x36u8, &mut [
-        //             Operation::Write(&[0x0Bu8]),
-        //             Operation::Read(&mut status[0..=0]),
-        //         ])
-        //         .expect("Failed to run all operations");
-        //     top_i2c.write_read(0x36, &[0x0Bu8], &mut status[1..=1]).unwrap();
-        //     end_i2c.write_read(0x36, &[0x0Bu8], &mut status[2..=2]).unwrap();
-        //     let mut message: String<64> = String::new();
-        //     write!(&mut message, "cart: {:08b}, top: {:08b}, end: {:08b}\n", status[0], status[1], status[2]).unwrap();
-        //     // let _ = serial.write(message.as_bytes());
-        //     get_status_flag = false;
-        // }
         
-        // first grab all three encoder positions
-        let _ = cart_i2c
-            .exec(0x36u8, &mut [
-                Operation::Write(&[0x0Cu8]),
-                Operation::Read(&mut cart),
-                ]);
+        // first grab all encoder positions
         let _ = top_i2c.write_read(0x36, &[0x0Cu8], &mut top);
         let _ = end_i2c.write_read(0x36, &[0x0Cu8], &mut end);
         
-        if u16::from_be_bytes(cart) > 4096 || 
-           u16::from_be_bytes(top)  > 4096 || 
+        if u16::from_be_bytes(top)  > 4096 || 
            u16::from_be_bytes(end)  > 4096 { continue; }
         
-        oldc = cart_pos;
         oldt = top_pos;
         olde = end_pos;
         // now update the positions
-        cart_pos = u16::from_be_bytes(cart) as i32;
         top_pos = u16::from_be_bytes(top) as i32;
         end_pos = u16::from_be_bytes(end) as i32;
         
-        
-        dc = cart_pos-oldc;
         dt = top_pos-oldt;
         de = end_pos-olde;
 
         // check if angle wrap happened
-        cart_rots = CART_ROTS.load(Ordering::Relaxed);
         top_rots = TOP_ROTS.load(Ordering::Relaxed);
         end_rots = END_ROTS.load(Ordering::Relaxed);
-        
-        if dc > 3500 && dc <= 4096 { CART_ROTS.store(cart_rots - 1, Ordering::Relaxed); cart_rots -= 1;}
-        else if dc < -3500 && dc >= -4096 { CART_ROTS.store(cart_rots + 1, Ordering::Relaxed); cart_rots += 1;}
         
         if dt > 3500 && dt <= 4096 { TOP_ROTS.store(top_rots - 1, Ordering::Relaxed); top_rots -= 1;}
         else if dt < -3500 && dt >= -4096 { TOP_ROTS.store(top_rots + 1, Ordering::Relaxed); top_rots += 1;}
@@ -390,14 +373,13 @@ fn main() -> ! {
         if de > 3500 && de <= 4096 { END_ROTS.store(end_rots - 1, Ordering::Relaxed); end_rots -= 1;}
         else if de < -3500 && de >= -4096 { END_ROTS.store(end_rots + 1, Ordering::Relaxed); end_rots += 1;}
         
-        let (c, t, e) = (cart_pos+cart_rots*4096, top_pos+top_rots*4096, end_pos+end_rots*4096);
-        CART.store(c, Ordering::Relaxed);
+        let (t, e) = (top_pos+top_rots*4096, end_pos+end_rots*4096);
         TOP.store(t, Ordering::Relaxed);
         END.store(e, Ordering::Relaxed);
         
         
         if IN_RESET.load(Ordering::Relaxed) {
-            channel.set_duty(0.0.get_duty(&basic_norm));
+            CART_VEL.store(0, Ordering::Relaxed);
             led_pin.set_low().unwrap();
             // delay.delay_ms(500);
             // led_pin.set_high().unwrap();
@@ -411,19 +393,19 @@ fn main() -> ! {
         match MODE.load(Ordering::Relaxed) {
             0 => {
                 //usb
-                //do nothing, we already set power above
+                //do nothing, we already set power in usb irq
             },
             1 => { //local
                 let top_err = (t - TOP_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK - PI;
                 if top_err > PI/2.0 || top_err < -PI/2.0 {
-                    CUR_POWER.store(0.0.get_duty(&basic_norm), Ordering::Relaxed);
+                    CART_VEL.store(0, Ordering::Relaxed);
                     MODE.store(0, Ordering::Relaxed);
                 } else {
-                    CUR_POWER.store((-1.0*
+                    CART_VEL.store((-1.0*
                         (((c - CART_OFFSET.load(Ordering::Relaxed)) as f32 * CART_M_PER_TICK) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
                         + top_err * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
                         + ((e - END_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK) * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
-                        + VC.load(Ordering::Relaxed) as f32 * CART_M_PER_TICK * 100.0 * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes()) //2pi/4096 (radians/ticks) times 1_000_000 (us/s)
+                        + VC.load(Ordering::Relaxed) as f32 * CART_M_PER_TICK * 100.0 * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
                         + VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 100.0 * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
                         + VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 100.0 * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes()))
                     ).get_duty(&unsafe_norm), Ordering::Relaxed); //calibrated values for 0, -1, 1
@@ -440,10 +422,6 @@ fn main() -> ! {
             },
             _ => {}
         }
-        // if state[0] > 0.8 || state[0] < -0.8 {
-        //     cur_power = 0.0.get_duty(&basic_norm);
-        // }
-        channel.set_duty(CUR_POWER.load(Ordering::Relaxed));
     }
 }
 
@@ -455,26 +433,15 @@ fn main() -> ! {
 #[allow(non_snake_case)]
 #[interrupt]
 unsafe fn USBCTRL_IRQ() {
-    use core::sync::atomic::{AtomicBool, Ordering};
-
-    /// Note whether we've already printed the "hello" message.
-    static SAID_HELLO: AtomicBool = AtomicBool::new(false);
+    // use core::sync::atomic::{AtomicBool, Ordering};
 
     // Grab the global objects. This is OK as we only access them under interrupt.
     let usb_dev = USB_DEVICE.as_mut().unwrap();
     let serial = USB_SERIAL.as_mut().unwrap();
-    
-    // let i2c
-
-    // Say hello exactly once on start-up
-    if !SAID_HELLO.load(Ordering::Relaxed) {
-        SAID_HELLO.store(true, Ordering::Relaxed);
-        let _ = serial.write(b"Hello, World!\r\n");
-    }
 
     // Poll the USB driver with all of our supported USB Classes
     if usb_dev.poll(&mut [serial]) {
-        let mut buf = [0, 91, 165, 0, 0]; //format: 1 byte command, up to 4 bytes data. Default command is set power to 0.
+        let mut buf = [0, 0, 0, 0, 0]; //format: 1 byte command, up to 4 bytes data. Default command is set power to 0.
 
         if IN_RESET.load(Ordering::Relaxed) {
             match serial.read(&mut buf) {
@@ -494,11 +461,9 @@ unsafe fn USBCTRL_IRQ() {
             match serial.read(&mut buf) {
                 Ok(1) => {
                     if buf[0] == 9 {
-                        CART_OFFSET.store(CART.load(Ordering::Relaxed), Ordering::Relaxed);
                         TOP_OFFSET.store(TOP.load(Ordering::Relaxed), Ordering::Relaxed);
                         END_OFFSET.store(END.load(Ordering::Relaxed), Ordering::Relaxed);
                         
-                        CART_ROTS.store(0, Ordering::Relaxed);
                         TOP_ROTS.store(0, Ordering::Relaxed);
                         END_ROTS.store(0, Ordering::Relaxed);
                     }
@@ -506,7 +471,7 @@ unsafe fn USBCTRL_IRQ() {
                 Ok(_) => {
                     match buf[0] { //32767.5
                         0 => {
-                            CUR_POWER.store(((u16::from_be_bytes([buf[1], buf[2]]) as f32 / 32767.5) - 1.0).get_duty(&basic_norm), Ordering::Relaxed);
+                            CART_ACC.store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed);
                         },
                         1 => {
                             MODE.store(buf[1], Ordering::Relaxed);
@@ -520,11 +485,9 @@ unsafe fn USBCTRL_IRQ() {
                         _ => {},
                     }
                     let mut message: String<100> = String::new();
-                    let _ = write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", 
-                        (CART.load(Ordering::Relaxed) - CART_OFFSET.load(Ordering::Relaxed)) as f32 * CART_M_PER_TICK, 
+                    let _ = write!(&mut message, "{:.6},{:.6},{:.6},{:.6}\n",  
                         (TOP.load(Ordering::Relaxed) -  TOP_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK, 
                         (END.load(Ordering::Relaxed) -  END_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK, 
-                        VC.load(Ordering::Relaxed) as f32 * CART_M_PER_TICK * 20.0, 
                         VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0, 
                         VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0,
                     );
@@ -548,10 +511,18 @@ unsafe fn IO_IRQ_BANK0() {
 }
 
 #[interrupt]
+unsafe fn PIO_IRQ_1() {
+    let cart_vel = CART_VEL.load(Ordering::Relaxed);
+    CART_VEL.store(cart_vel + CART_ACC.load(Ordering::Relaxed)/20);
+    let (dir, step) = cart_vel.get_period().unwrap_or(u32::MAX);
+    TX.unwrap().as_mut().write(step);
+    DIR_PIN.unwrap().as_mut().set_state(dir);
+}
+
+#[interrupt]
 unsafe fn TIMER_IRQ_0() {
-    // use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-    let vc = OLD_VC.load(Ordering::Relaxed);
-    OLD_VC.store(CART.load(Ordering::Relaxed), Ordering::Relaxed);
+    let alarm0 = ALARM.as_mut().unwrap();
+    let _ = alarm0.schedule(50_000.micros());
 
     let vt = OLD_VT.load(Ordering::Relaxed);
     OLD_VT.store(TOP.load(Ordering::Relaxed), Ordering::Relaxed);
@@ -559,11 +530,14 @@ unsafe fn TIMER_IRQ_0() {
     let ve = OLD_VE.load(Ordering::Relaxed);
     OLD_VE.store(END.load(Ordering::Relaxed), Ordering::Relaxed);
 
-    VC.store(CART.load(Ordering::Relaxed) - vc, Ordering::Relaxed);
     VT.store( TOP.load(Ordering::Relaxed) - vt, Ordering::Relaxed);
     VE.store( END.load(Ordering::Relaxed) - ve, Ordering::Relaxed);
 
-    let alarm0 = ALARM.as_mut().unwrap();
-    let _ = alarm0.schedule(50_000.micros());
+    let cart_vel = CART_VEL.load(Ordering::Relaxed);
+    CART_VEL.store(cart_vel + CART_ACC.load(Ordering::Relaxed)/20);
+    let (dir, step) = cart_vel.get_period().unwrap_or(u32::MAX);
+    TX.unwrap().as_mut().write(step);
+    DIR_PIN.unwrap().as_mut().set_state(dir);
+
     alarm0.clear_interrupt();
 }

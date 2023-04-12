@@ -47,7 +47,7 @@ def get_mpc():
     mpc = do_mpc.controller.MPC(model)
 
     tstep = 0.05
-    thorizon = 4
+    thorizon = 2
     nhorizon = int(thorizon/tstep)
     setup_mpc = {
         'n_horizon': nhorizon,
@@ -62,14 +62,14 @@ def get_mpc():
         'store_full_solution': True,
     }
     mpc.set_param(**setup_mpc)
-    # mpc.set_param(nlpsol_opts = {'ipopt.linear_solver': 'MA27'})
+    mpc.set_param(nlpsol_opts = {'ipopt.linear_solver': 'MA27'})
 
     # suppress printing
     mpc.nlpsol_opts['ipopt.print_level'] = 0
     mpc.nlpsol_opts['ipopt.sb'] = 'yes'
     mpc.nlpsol_opts['print_time'] = 0
 
-    # mpc.nlpsol_opts['ipopt.linear_solver'] = 'MA27'
+    mpc.nlpsol_opts['ipopt.linear_solver'] = 'MA27'
 
     # l_term = 10*cos(y1) + 0.1*y0**2 + 0.1*dy[0]**2 + 0.1*dy[1]**2 + 0.3*f**2 # step cost
     # m_term = 10*cos(y1) + 0.1*y0**2 + 0.02*dy[0]**2 + 0.5*dy[1]**2 # terminal state cost

@@ -145,8 +145,8 @@ Run MPC main loop:
 """
 time_list = []
 
-n_steps = int(8/mpc.t_step)
-x0 = [x0]
+n_steps = int(16/mpc.t_step)
+x0 = [x0, x0]
 for k in range(n_steps):
     # mpc.reset_history()
 
