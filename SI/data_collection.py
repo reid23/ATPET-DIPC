@@ -112,7 +112,7 @@ if __name__ == '__main__':
         p.set(0)
         sleep(1)
         p.set(0.1)
-        sleep(5)
+        sleep(50)
         # 0.2: 0.2 (1 kg lift)
         # 0.32N for 0.2 power
 
