@@ -35,13 +35,24 @@ irq wait 2 ; raise irq to get num steps
 pull ; get num steps (cpu sent them)
 mov x osr ; save num steps to x
 
+start:
+jmp x-- loop
+jmp done
+
 loop:
-    irq wait 3 ; send 1 step, wait for completion
-    jmp x-- loop [2]; decrease x (it's our loop counter)
-    ; also delay 2 bc irq, pull, mov take 3 before so we want
-    ; 3 total delay for this loop as well
-irq wait 3 ; send 1 final step, no wait afterward!
-; this makes step count accurate (bc do:while isn't for:)
-; and makes us not double-delay after last step
+    irq wait 3
+    jmp start
+
+done:
+    nop
+
+; loop:
+;     irq wait 3 ; send 1 step, wait for completion
+;     jmp x-- loop [2]; decrease x (it's our loop counter)
+;     ; also delay 2 bc irq, pull, mov take 3 before so we want
+;     ; 3 total delay for this loop as well
+; irq wait 3 ; send 1 final step, no wait afterward!
+; ; this makes step count accurate (bc do:while isn't for:)
+; ; and makes us not double-delay after last step
 
 .wrap

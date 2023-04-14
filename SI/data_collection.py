@@ -55,7 +55,7 @@ class Pendulum:
         """
         while not stop_event.is_set():
             try:
-                ser.write(bytearray([0])+struct.pack('>H', int((self.pwr+1)*32768)))
+                ser.write(bytearray([0])+struct.pack('>l', self.pwr))
                 sleep(0.02)
                 self.y = np.array(str(ser.readline())[2:-3].split(','), dtype=float)
             except AttributeError:
@@ -72,7 +72,7 @@ class Pendulum:
         Args:
             power (float): power level in [-1, 1] to send to motor
         """
-        self.pwr = power
+        self.pwr = int(power*10000)
     def set_K(self, K):
         """sets gain matrix K to the given list.
 
@@ -80,7 +80,7 @@ class Pendulum:
             K (list): list of length 6 containing gains in the format `[x, θt, θe, ẋ, θ̇t, θ̇]`
         """
         for idx, i in enumerate(K):
-            self.ser.write(bytearray([idx+2])+struct.pack('>f', i))
+            self.ser.write(bytearray([idx+2])+struct.pack('>i', i))
             sleep(0.05)
     def set_mode(self, mode):
         """sets the operating mode of the pendulum
@@ -112,7 +112,7 @@ if __name__ == '__main__':
         p.set(0)
         sleep(1)
         p.set(0.1)
-        sleep(10)
+        sleep(5)
         # 0.2: 0.2 (1 kg lift)
         # 0.32N for 0.2 power
 

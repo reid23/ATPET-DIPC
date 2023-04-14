@@ -30,7 +30,7 @@ use pio_proc::pio_file;
 // const STEPS_PER_MM: i32 = 10; // unused
 const PIO_FREQ: u32 = 5_000_000; // Hz
 const MAX_SPEED: i32 = 5000; // mm/s
-const MAX_ACCELERATION: u32 = 5000; //mm/s^2
+const MAX_ACCELERATION: i32 = 5000; //mm/s^2
 const STEPPER_VELOCITY_UPDATE_TIME: u32 = 50_000; // in us (5 ticks/us, so max (5*this)/19 steps, min speed 0.1/5*this mm/s)
 
 
@@ -52,14 +52,13 @@ impl GetPeriod for i32{
 static mut DIR_PIN: Option<Pin<hal::gpio::bank0::Gpio5, PushPullOutput>> = None;
 static mut DELAY_TX: Option<Tx<(pac::PIO1, SM0)>> = None;
 static mut COUNT_TX: Option<Tx<(pac::PIO1, SM1)>> = None;
+static mut PIO1: Option<hal::pio::PIO<pac::PIO1>> = None;
+static IRQ_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 static CART_VEL: AtomicI32 = AtomicI32::new(0); // 0.1 * mm/s 
 static CART_ACC: AtomicI32 = AtomicI32::new(0); // 0.1 * mm/s^2
-static mut PIO1: Option<hal::pio::PIO<pac::PIO1>> = None;
 
-static PREV_TIME: AtomicU32 = AtomicU32::new(0);
 static MODE: AtomicU8 = AtomicU8::new(0);
-static CUR_POWER: AtomicI32 = AtomicI32::new(0);
 static IN_RESET: AtomicBool = AtomicBool::new(false);
 static CART_POS: AtomicI32 = AtomicI32::new(0);
 
@@ -76,23 +75,18 @@ static mut ALARM: Option<hal::timer::Alarm0> = None;
 
 static mut RESET_PIN: Option<Pin<hal::gpio::bank0::Gpio11, PullUpInput>> = None;
 
-static OLD_VC: AtomicI32 = AtomicI32::new(0);
 static OLD_VT: AtomicI32 = AtomicI32::new(0);
 static OLD_VE: AtomicI32 = AtomicI32::new(0);
 
-static VC: AtomicI32 = AtomicI32::new(0);
 static VT: AtomicI32 = AtomicI32::new(0);
 static VE: AtomicI32 = AtomicI32::new(0);
 
-static CART: AtomicI32 = AtomicI32::new(0);
 static TOP: AtomicI32 = AtomicI32::new(0);
 static END: AtomicI32 = AtomicI32::new(0);
 
-static CART_OFFSET: AtomicI32 = AtomicI32::new(0);
 static TOP_OFFSET: AtomicI32 = AtomicI32::new(2954-18);
 static END_OFFSET: AtomicI32 = AtomicI32::new(0);
 
-static CART_ROTS: AtomicI32 = AtomicI32::new(0);
 static TOP_ROTS: AtomicI32 = AtomicI32::new(0);
 static END_ROTS: AtomicI32 = AtomicI32::new(0);
 static K: [AtomicI32; 6] = [AtomicI32::new(0),
@@ -102,9 +96,6 @@ static K: [AtomicI32; 6] = [AtomicI32::new(0),
                             AtomicI32::new(0),
                             AtomicI32::new(0)];
 
-
-
-const CART_M_PER_TICK: f32 = 0.12/4096.0;
 const RADS_PER_TICK: f32 = 2.0*3.14159265358979323/4096.0;
 
 
@@ -195,28 +186,23 @@ fn main() -> ! {
 
     // get PIO and state machine for i2c over PIO (since we only have 2 hw i2c drivers)
     // let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
-    let (mut pio1, sm0, sm1, _, _) = pac.PIO1.split(&mut pac.RESETS);
+    let (mut pio1, mut sm0, mut sm1, _, _) = pac.PIO1.split(&mut pac.RESETS);
 
-    unsafe { PIO1 = Some(pio1); }
-
-    pio1.irq1().enable_sm_interrupt(2);
-
-
+    
+    
     // Create a pio programs
     let step = pio_file!("steps.pio", select_program("step"),);
     let stepcaller = pio_file!("steps.pio", select_program("stepcaller"),);
     let step_installed = pio1.install(&step.program).unwrap();
     let stepcaller_installed = pio1.install(&stepcaller.program).unwrap();
-
+    
     // Set gpio6 (step pin) to pio
     let _step: hal::gpio::Pin<_, hal::gpio::FunctionPio1> = pins.gpio6.into_mode();
     let step_pin_id = 6;
-
     // Build the pio program and set pin both for set and side set!
     // We are running with the default divider which is 1 (max speed)
     let (mut step_sm, _, mut tx0) = PIOBuilder::from_program(step_installed)
         .set_pins(step_pin_id, 1)
-        .side_set_pin_base(step_pin_id)
         .clock_divisor_fixed_point(25, 0)
         .build(sm0);
     let (mut stepcaller_sm, _, mut tx1) = PIOBuilder::from_program(stepcaller_installed)
@@ -225,20 +211,24 @@ fn main() -> ! {
 
     // Set pio pindir for gpio6
     step_sm.set_pindirs([(step_pin_id, hal::pio::PinDir::Output)]);
-
-    // Start state machine
-    let step_sm = step_sm.start();
-    let stepcaller_sm = stepcaller_sm.start();
-    // setup direction pin
+    
     let mut dir_pin = pins.gpio5.into_push_pull_output();
-
-    let (dir, step, count) = 0.get_period().unwrap_or((PinState::Low, u32::MAX, 0));
     unsafe {
         DIR_PIN = Some(dir_pin);
         DELAY_TX = Some(tx0);
         COUNT_TX = Some(tx1);
     }
-
+    
+    step_sm.synchronize_with(&mut stepcaller_sm);
+    let irq = pio1.irq1();
+    irq.enable_sm_interrupt(2);
+    unsafe { PIO1 = Some(pio1); }
+    // Start state machine
+    let mut step_sm = step_sm.start();
+    let mut stepcaller_sm = stepcaller_sm.start();
+    // setup direction pin
+    
+    
     // set up first hw i2c for first pendulum
     let top_sda = pins.gpio16.into_mode::<hal::gpio::FunctionI2C>();
     let top_scl = pins.gpio17.into_mode::<hal::gpio::FunctionI2C>();
@@ -282,7 +272,7 @@ fn main() -> ! {
         pac::NVIC::unmask(hal::pac::Interrupt::TIMER_IRQ_0);
     }
     unsafe { pac::NVIC::unmask(hal::pac::Interrupt::IO_IRQ_BANK0); }
-    unsafe { pac::NVIC::unmask(hal::pac::Interrupt::PIO0_IRQ_0); }
+    unsafe { pac::NVIC::unmask(hal::pac::Interrupt::PIO1_IRQ_1); }
 
     // led_pin.set_low().unwrap();
     // delay.delay_ms(1000);
@@ -370,6 +360,7 @@ fn main() -> ! {
             _ => {}
         }
     }
+
 }
 
 /// This function is called whenever the USB Hardware generates an Interrupt
@@ -433,11 +424,15 @@ unsafe fn USBCTRL_IRQ() {
                         _ => {},
                     }
                     let mut message: String<100> = String::new();
-                    let _ = write!(&mut message, "{:.6},{:.6},{:.6},{:.6}\n",  
+                    let _ = write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", 
+                        CART_POS.load(Ordering::Relaxed) as f32 / 10000.0,
                         (TOP.load(Ordering::Relaxed) -  TOP_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK, 
                         (END.load(Ordering::Relaxed) -  END_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK, 
+                        CART_VEL.load(Ordering::Relaxed) as f32 / 10000.0,
                         VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0, 
                         VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0,
+                        CART_ACC.load(Ordering::Relaxed) as f32 / 10000.0,
+                        // IRQ_COUNTER.load(Ordering::Relaxed)
                     );
                     let _ = serial.write(message.as_bytes());
                 }
@@ -477,21 +472,46 @@ unsafe fn TIMER_IRQ_0() {
 }
 
 #[interrupt]
-unsafe fn PIO0_IRQ_1() {
-    let cart_vel = CART_VEL.load(Ordering::Relaxed);
-    CART_VEL.store(cart_vel + CART_ACC.load(Ordering::Relaxed)/20, Ordering::Relaxed); //0.1 mm/s^2, /20 bc time step is 50 ms
+unsafe fn PIO1_IRQ_1() {
+
+    let mut cart_vel = CART_VEL.load(Ordering::Relaxed);
+    let mut acc = CART_ACC.load(Ordering::Relaxed);
+
+    // impose limits on acceleration and velocity
+    if acc > MAX_ACCELERATION { acc = MAX_ACCELERATION; }
+    else if acc < -MAX_ACCELERATION { acc = -MAX_ACCELERATION; }
+    if cart_vel > MAX_SPEED { cart_vel = MAX_SPEED; }
+    else if cart_vel < -MAX_SPEED { cart_vel = -MAX_SPEED; }
+    
+    CART_VEL.store(cart_vel + acc/20, Ordering::Relaxed); //0.1 mm/s^2, /20 bc time step is 50 ms
+    
     let (dir, step, count) = cart_vel.get_period().unwrap_or((PinState::Low, u32::MAX, 0u32));
     CART_POS.store(
         CART_POS.load(Ordering::Relaxed)
-        + (count as i32 * match dir { 
+        + ((count * (step+19)) as i32 * match dir { 
             PinState::High => 1, 
             PinState::Low => -1,
         })
     , Ordering::Relaxed); // hacky but good enough for now
 
-    DELAY_TX.unwrap().write(step);
-    COUNT_TX.unwrap().write(count);
-    DIR_PIN.unwrap().set_state(dir);
+    match DELAY_TX.as_mut(){
+        Some(tx) => { tx.write(step); },
+        None => {IN_RESET.store(true, Ordering::Relaxed); }
+    }
+    match COUNT_TX.as_mut(){
+        Some(tx) => { tx.write(count); },
+        None => {IN_RESET.store(true, Ordering::Relaxed); }
+    }
+    // COUNT_TX.as_mut().unwrap().write(count);
+    match DIR_PIN.as_mut().unwrap().set_state(dir) {
+        Ok(_) => {},
+        Err(_) => {IN_RESET.store(true, Ordering::Relaxed);},
+    }
     
-    PIO1.unwrap().clear_irq(32) // 32 is 00100000, so clears irq 2??? idek anymore
+    // PIO1.as_mut().unwrap().force_irq(0); // 32 is 00100000, so clears irq 2??? idek anymore
+    // PIO1.as_mut().unwrap().irq0().state()
+    // .clear_irq(32); // 32 is 00100000, so clears irq 2??? idek anymore
+    // PIO1.as_mut().unwrap().clear_irq(32);
+    pac::NVIC::unpend(pac::Interrupt::PIO1_IRQ_1);
+
 }
