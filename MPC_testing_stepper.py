@@ -32,7 +32,7 @@ def get_mpc():
     l = 0.21
     expr = vertcat(
         f,
-        -(f*cos(y1) + 9.8*sin(y1))/l - 0.15*tanh(8*y1)
+        -(f*cos(y1) + 9.8*sin(y1))/l - 0.15*tanh(6*y1)
         # -f*cos(y1)-(9.8/l)*sin(y1)
     )
 
@@ -52,8 +52,8 @@ def get_mpc():
 
     mpc = do_mpc.controller.MPC(model)
 
-    tstep = 0.07
-    thorizon = 0.7
+    tstep = 0.05
+    thorizon = 1
     nhorizon = int(thorizon/tstep)
     setup_mpc = {
         'n_horizon': nhorizon,

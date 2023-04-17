@@ -15,7 +15,7 @@ with serial.Serial(port, 115200) as p:
         # p.readline()
         print('here')
         start = perf_counter()
-        with open('mpc_data.txt', 'w') as f:
+        with open('mpc_data_2.txt', 'w') as f:
             while True:
                 # p.flush()
                 # sleep(0.02)

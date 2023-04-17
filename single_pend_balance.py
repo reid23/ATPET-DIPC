@@ -25,9 +25,9 @@ PP.insert(2, 0)
 PP.append(0)
 # LQR[0]*= 1
 # LQR *= -1
-LQR[0] *= -1
-LQR[1] *= -1
-LQR[2] *= -1
+# LQR[0] *= -1
+# LQR[1] *= -1
+# LQR[2] *= -1
 # LQR[3] *= -1
 with Pendulum.Pendulum(file = '/dev/null') as p:
     p.set_mode('usb')
