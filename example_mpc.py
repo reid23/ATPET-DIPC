@@ -146,7 +146,7 @@ Run MPC main loop:
 time_list = []
 
 n_steps = int(16/mpc.t_step)
-x0 = [x0, x0]
+x0 = [x0]
 for k in range(n_steps):
     # mpc.reset_history()
 
@@ -154,8 +154,7 @@ for k in range(n_steps):
     x0_to_use = x0.pop(0)
     u0 = mpc.make_step(x0_to_use)
     u0 = mpc.data.prediction(('_u', 'f'))[0][0][:, np.newaxis]
-    print(f"{u0},")
-    # print({mpc.data.prediction(('_x', 'dy')).T[0]})
+    print(f"{mpc.data.prediction(('_u', 'f'))[0,0,0]},")
     toc = time.time()
     y_next = simulator.make_step(u0)
     x0.append(estimator.make_step(y_next))

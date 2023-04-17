@@ -80,7 +80,7 @@ class Pendulum:
             K (list): list of length 6 containing gains in the format `[x, θt, θe, ẋ, θ̇t, θ̇]`
         """
         for idx, i in enumerate(K):
-            self.ser.write(bytearray([idx+2])+struct.pack('>i', i))
+            self.ser.write(bytearray([idx+2])+struct.pack('>f', i))
             sleep(0.05)
     def set_mode(self, mode):
         """sets the operating mode of the pendulum
@@ -111,8 +111,11 @@ if __name__ == '__main__':
     with Pendulum(file = '/dev/stdout') as p:
         p.set(0)
         sleep(1)
-        p.set(0.1)
-        sleep(50)
+        p.set(1)
+        sleep(0.5)
+        p.set(-1)
+        sleep(0.5)
+
         # 0.2: 0.2 (1 kg lift)
         # 0.32N for 0.2 power
 
@@ -121,7 +124,7 @@ if __name__ == '__main__':
         #     p.set((np.sin(i)/2 + 0.5*np.sin(2*i))*0.666*power)
         #     sleep(period/(2*np.pi/0.1))
         p.set(0)
-        sleep(1)
+        sleep(2)
         # def print_add(joy):
         #     print('Added', joy)
 

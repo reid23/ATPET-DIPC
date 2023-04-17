@@ -1,4 +1,4 @@
-import machine
+#import machine
 from machine import Pin, PWM, I2C, SoftI2C
 from time import sleep, ticks_us, sleep_us
 from math import sin

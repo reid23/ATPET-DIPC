@@ -248,7 +248,7 @@ if __name__ == '__main__':
     print(model.get_eigs('PP')[0])
     print(model.B@model.K['PP'])
     model.set_constants([0.22, 1, 0.12, 0.00299,  22])
-    print(model.ydot)
+    print(sp.simplify(model.ydot))
     # print(model.K['PP'])
     model.integrate_with_scipy(
         y_0 = [0, (7/8)*np.pi, 0, 0], 

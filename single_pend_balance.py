@@ -4,16 +4,16 @@ from SI.sim import single_pendulum_model
 import numpy as np
 eigs = np.array([
     [-5.5], 
-    [-10.4],
-    [-10.3],
-    [-15.2],
+    [-5.4],
+    [-5.3],
+    [-5.2],
 ][::-1])*2
 
-Q = np.diag([70, 50, 3, 30])
-R = np.diag([50])
+Q = np.diag([10000, 10000000, 3, 10])
+R = np.diag([0.1])
 model = (single_pendulum_model.dipc_model()
     .linearize()
-    .set_constants([0.18319, 0.77088, 0.11271, 0.00093, 32.95541])
+    .set_constants([0.15, 0.77088, 0.11271, 0.00093, 32.95541])
     .construct_PP(eigs)
     .construct_LQR(Q, R))
 PP, LQR = list(model.K['PP'][0]), list(model.K['LQR'][0])
@@ -23,9 +23,11 @@ LQR.insert(2, 0)
 LQR.append(0)
 PP.insert(2, 0)
 PP.append(0)
-# PP[0] *= -1
-# LQR[0] *= -1
-# PP[3] *= -1
+# LQR[0]*= 1
+# LQR *= -1
+LQR[0] *= -1
+LQR[1] *= -1
+LQR[2] *= -1
 # LQR[3] *= -1
 with Pendulum.Pendulum(file = '/dev/null') as p:
     p.set_mode('usb')

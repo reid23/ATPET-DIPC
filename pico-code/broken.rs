@@ -2,7 +2,6 @@
 #![no_std]
 #![no_main]
 
-use pio::MovOperation;
 use rp_pico::entry; // startup function macro
 use rp_pico::hal;
 use embedded_hal::digital::v2::OutputPin;
@@ -27,29 +26,26 @@ use pac::interrupt;
 use core::sync::atomic::{AtomicI32, AtomicU32, AtomicU16, AtomicU8, AtomicBool, Ordering};
 use hal::pio::{PIOBuilder, ValidStateMachine, Tx};
 use pio_proc::pio_file;
-use micromath::F32Ext;
 
 // const STEPS_PER_MM: i32 = 10; // unused
 const PIO_FREQ: u32 = 5_000_000; // Hz
 const MAX_SPEED: i32 = 5000; // mm/s
-const MAX_ACCELERATION: i32 = 40000; //mm/s^2
-const STEPPER_VELOCITY_UPDATE_TIME: u32 = 10_000; // in us (5 ticks/us, so max (5*this)/19 steps, min speed 0.1/5*this mm/s)
+const MAX_ACCELERATION: i32 = 5000; //mm/s^2
+const STEPPER_VELOCITY_UPDATE_TIME: u32 = 50_000; // in us (5 ticks/us, so max (5*this)/19 steps, min speed 0.1/5*this mm/s)
 
 
 trait GetPeriod{
-    fn get_period(&self) -> Result<(PinState, u32), &'static str>;
+    fn get_period(&self) -> Result<(PinState, u32, u32), &'static str>;
 }
 impl GetPeriod for i32{
     // takes speed in 0.1mm/s and converts it to period for pio
-    fn get_period(&self) -> Result<(PinState, u32), &'static str>{
-        if self == &0 {return Ok((PinState::Low, u32::MAX))}
-        let pwr = if self > &(MAX_SPEED*10) {MAX_SPEED*10} 
-                  else if self < &-(MAX_SPEED*10) {-MAX_SPEED*10} 
-                  else {*self};
-        let dir = if self < &0 {PinState::High} else {PinState::Low};
-        let delay = PIO_FREQ / pwr.abs() as u32;
+    fn get_period(&self) -> Result<(PinState, u32, u32), &'static str>{
+        if self == &0 {return Ok((PinState::Low, u32::MAX, 0))}
+        let pwr = if self > &(MAX_SPEED*10) {MAX_SPEED*10} else {*self};
+        let dir = if self < &0 {PinState::Low} else {PinState::High};
+        let delay = PIO_FREQ / pwr as u32;
         if delay < 19 {return Err("speed too high (took too much of itself lmao)");}
-        Ok((dir, delay-14)) // 19 is len of pio program, PIO_FREQ/1_000_000 is pio ticks/us
+        Ok((dir, delay-19, (STEPPER_VELOCITY_UPDATE_TIME*(PIO_FREQ/1_000_000))/(delay-19))) // 19 is len of pio program, PIO_FREQ/1_000_000 is pio ticks/us
     }
 }
 static RAW_TOP: AtomicI32 = AtomicI32::new(0);
@@ -196,6 +192,11 @@ fn main() -> ! {
 
     
     
+    // Create a pio programs
+    // let step = pio_file!("steps.pio", select_program("step"),);
+    let stepcaller = pio_file!("steps.pio", select_program("stepcaller"),);
+    // let step_installed = pio1.install(&step.program).unwrap();
+    let stepcaller_installed = pio1.install(&stepcaller.program).unwrap();
     let simple = pio_file!("steps.pio", select_program("simple"),);
     let simple_installed = pio1.install(&simple.program).unwrap();
     
@@ -210,6 +211,9 @@ fn main() -> ! {
         .set_pins(step_pin_id, 1)
         .clock_divisor_fixed_point(25, 0)
         .build(sm0);
+    let (mut stepcaller_sm, _, mut tx1) = PIOBuilder::from_program(stepcaller_installed)
+        .clock_divisor_fixed_point(25, 0)
+        .build(sm1);
 
     // Set pio pindir for gpio6
     step_sm.set_pindirs([(step_pin_id, hal::pio::PinDir::Output)]);
@@ -219,37 +223,38 @@ fn main() -> ! {
     unsafe {
         DIR_PIN = Some(dir_pin);
         DELAY_TX = Some(tx0);
+        COUNT_TX = Some(tx1);
     }
     
-    // step_sm.synchronize_with(&mut stepcaller_sm);
-    // let irq = pio1.irq1();
-    // irq.enable_sm_interrupt(2);
-    // unsafe { PIO1 = Some(pio1); }
+    step_sm.synchronize_with(&mut stepcaller_sm);
+    let irq = pio1.irq1();
+    irq.enable_sm_interrupt(2);
+    unsafe { PIO1 = Some(pio1); }
     // Start state machine
     let mut step_sm = step_sm.start();
-    // let mut stepcaller_sm = stepcaller_sm.start();
+    let mut stepcaller_sm = stepcaller_sm.start();
     // setup direction pin
-    // step_sm.drain_tx_fifo();
+    step_sm.drain_tx_fifo();
     
     unsafe { STEP_SM = Some(step_sm); }
 
-    // unsafe { 
-    //     let tx = DELAY_TX.as_mut().unwrap(); 
-    //     let sm = STEP_SM.as_mut().unwrap();
-    //     for i in 0..250{
-    //         tx.write(500_000/((2*i+100)));
-    //         sm.exec_instruction(
-    //             pio::Instruction { 
-    //                 operands: pio::InstructionOperands::PULL { 
-    //                     if_empty: false, 
-    //                     block: true }, 
-    //                     delay: 0, 
-    //                     side_set: None,
-    //                 }
-    //             );
-    //         delay.delay_ms(10);
-    //     }
-    // }
+    unsafe { 
+        let tx = DELAY_TX.as_mut().unwrap(); 
+        let sm = STEP_SM.as_mut().unwrap();
+        for i in 0..250{
+            tx.write(500_000/((2*i+100)));
+            sm.exec_instruction(
+                pio::Instruction { 
+                    operands: pio::InstructionOperands::PULL { 
+                        if_empty: false, 
+                        block: true }, 
+                        delay: 0, 
+                        side_set: None,
+                    }
+                );
+            delay.delay_ms(10);
+        }
+    }
     
     // set up first hw i2c for first pendulum
     let top_sda = pins.gpio16.into_mode::<hal::gpio::FunctionI2C>();
@@ -294,7 +299,7 @@ fn main() -> ! {
         pac::NVIC::unmask(hal::pac::Interrupt::TIMER_IRQ_0);
     }
     unsafe { pac::NVIC::unmask(hal::pac::Interrupt::IO_IRQ_BANK0); }
-    // unsafe { pac::NVIC::unmask(hal::pac::Interrupt::PIO1_IRQ_1); }
+    unsafe { pac::NVIC::unmask(hal::pac::Interrupt::PIO1_IRQ_1); }
 
     // led_pin.set_low().unwrap();
     // delay.delay_ms(1000);
@@ -309,13 +314,17 @@ fn main() -> ! {
         let _ = end_i2c.write_read(0x36, &[0x0Eu8], &mut end);
         
         if u16::from_be_bytes(top)  > 4096 || 
-           u16::from_be_bytes(end)  > 4096 { continue; }
+           u16::from_be_bytes(end)  > 4096 { 
+            IN_RESET.store(true, Ordering::Relaxed);
+            continue; }
         
         oldt = top_pos;
         olde = end_pos;
         // now update the positions
         top_pos = u16::from_be_bytes(top) as i32;
         end_pos = u16::from_be_bytes(end) as i32;
+
+        RAW_TOP.store(top_pos, Ordering::Relaxed);
         
         dt = top_pos-oldt;
         de = end_pos-olde;
@@ -353,19 +362,20 @@ fn main() -> ! {
                 //do nothing, we already set power in usb irq
             },
             1 => { //local
-                let top_err = -(((t+76) as f32 + 13.5*(1.0+(PI*((t+76) as f32)/2048.0).cos())) * RADS_PER_TICK) - PI;
-                // let top_err = (t - TOP_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK - PI;
+                let top_err = (t - TOP_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK - PI;
                 if top_err > PI/2.0 || top_err < -PI/2.0 {
                     CART_VEL.store(0, Ordering::Relaxed);
                     CART_ACC.store(0, Ordering::Relaxed);
                     MODE.store(0, Ordering::Relaxed);
                 } else {
                     //TODO: fix this
-                    CART_ACC.store(-(10000.0*
+                    CART_ACC.store((10000.0*
                         (CART_POS.load(Ordering::Relaxed) as f32 * 0.00001 * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
                         + top_err * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
-                        + CART_VEL.load(Ordering::Relaxed) as f32 * 0.00001 * f32::from_be_bytes(K[3].load(Ordering::Relaxed).to_be_bytes())
-                        + VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[4].load(Ordering::Relaxed).to_be_bytes()))
+                        + ((e - END_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK) * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
+                        + CART_VEL.load(Ordering::Relaxed) as f32 * 0.00001 * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
+                        + VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
+                        + VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes()))
                     ) as i32, Ordering::Relaxed); //calibrated values for 0, -1, 1
                 }
             },
@@ -444,18 +454,17 @@ unsafe fn USBCTRL_IRQ() {
                         },
                         _ => {},
                     }
-                    //def fix_ang(x): return x+76 + 0.5*(cos(2*pi*(x+76)/4096)+1)*27
-                    let angle = (TOP.load(Ordering::Relaxed) + 76);
-                    let final_angle = (angle as f32 + 13.5*(1.0+(PI*(angle as f32)/2048.0).cos())) * RADS_PER_TICK;
                     let mut message: String<100> = String::new();
-                    let _ = write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", 
+                    let _ = write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", 
                         CART_POS.load(Ordering::Relaxed) as f32 / 10000.0,
-                        -final_angle, 
+                        (TOP.load(Ordering::Relaxed) -  TOP_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK, 
                         (END.load(Ordering::Relaxed) -  END_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK, 
                         CART_VEL.load(Ordering::Relaxed) as f32 / 10000.0,
                         VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0, 
                         VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0,
                         CART_ACC.load(Ordering::Relaxed) as f32 / 10000.0,
+                        RAW_TOP.load(Ordering::Relaxed),
+                        // IRQ_COUNTER.load(Ordering::Relaxed)
                     );
                     let _ = serial.write(message.as_bytes());
                 }
@@ -480,27 +489,25 @@ unsafe fn IO_IRQ_BANK0() {
 #[interrupt]
 unsafe fn TIMER_IRQ_0() {
     let alarm0 = ALARM.as_mut().unwrap();
-    let _ = alarm0.schedule(10_000.micros());
-    let c = IRQ_COUNTER.load(Ordering::Relaxed);
-    if c >= 4 {
-        IRQ_COUNTER.store(0, Ordering::Relaxed);
-        let vt = OLD_VT.load(Ordering::Relaxed);
-        OLD_VT.store(TOP.load(Ordering::Relaxed), Ordering::Relaxed);
+    let _ = alarm0.schedule(50_000.micros());
 
-        let ve = OLD_VE.load(Ordering::Relaxed);
-        OLD_VE.store(END.load(Ordering::Relaxed), Ordering::Relaxed);
+    let vt = OLD_VT.load(Ordering::Relaxed);
+    OLD_VT.store(TOP.load(Ordering::Relaxed), Ordering::Relaxed);
 
-        VT.store( -(TOP.load(Ordering::Relaxed) - vt), Ordering::Relaxed);
-        VE.store( END.load(Ordering::Relaxed) - ve, Ordering::Relaxed);
-    } else {
-        IRQ_COUNTER.store(c+1, Ordering::Relaxed);
-    }
+    let ve = OLD_VE.load(Ordering::Relaxed);
+    OLD_VE.store(END.load(Ordering::Relaxed), Ordering::Relaxed);
 
-    let tx = DELAY_TX.as_mut().unwrap(); 
-    let sm = STEP_SM.as_mut().unwrap();
+    VT.store( TOP.load(Ordering::Relaxed) - vt, Ordering::Relaxed);
+    VE.store( END.load(Ordering::Relaxed) - ve, Ordering::Relaxed);
+
+    alarm0.clear_interrupt();
+}
+
+#[interrupt]
+unsafe fn PIO1_IRQ_1() {
+
     let mut cart_vel = CART_VEL.load(Ordering::Relaxed);
     let mut acc = CART_ACC.load(Ordering::Relaxed);
-    CART_POS.store(CART_POS.load(Ordering::Relaxed) + cart_vel/100, Ordering::Relaxed);
 
     // impose limits on acceleration and velocity
     if acc > MAX_ACCELERATION { acc = MAX_ACCELERATION; }
@@ -508,33 +515,57 @@ unsafe fn TIMER_IRQ_0() {
     if cart_vel > MAX_SPEED { cart_vel = MAX_SPEED; }
     else if cart_vel < -MAX_SPEED { cart_vel = -MAX_SPEED; }
     
-    CART_VEL.store(cart_vel + acc/100, Ordering::Relaxed); //0.1 mm/s^2, /20 bc time step is 50 ms
-    let (dir, step) = cart_vel.get_period().unwrap_or((PinState::Low, u32::MAX));
+    CART_VEL.store(cart_vel + acc/20, Ordering::Relaxed); //0.1 mm/s^2, /20 bc time step is 50 ms
+    
+    let (dir, step, count) = cart_vel.get_period().unwrap_or((PinState::Low, u32::MAX, 0u32));
+    CART_POS.store(
+        CART_POS.load(Ordering::Relaxed)
+        + ((count * (step+19)) as i32 * match dir { 
+            PinState::High => 1, 
+            PinState::Low => -1,
+        })
+    , Ordering::Relaxed); // hacky but good enough for now
 
-    match DIR_PIN.as_mut().unwrap().set_state(dir){
-        Ok(_) => {},
-        Err(_) => {IN_RESET.store(true, Ordering::Relaxed);}
+    match STEP_SM.as_mut(){
+        Some(step_sm) => { 
+            // step_sm.exec_instruction(pio::Instruction {
+            //     operands: pio::InstructionOperands::OUT { 
+            //         destination: pio::OutDestination::Y, 
+            //         bit_count: 32 
+            //     },
+            //     delay: 0,
+            //     side_set: None,
+            // });
+            step_sm.exec_instruction(
+                pio::Instruction { 
+                    operands: pio::InstructionOperands::PULL { 
+                        if_empty: false, 
+                        block: true }, 
+                        delay: 0, 
+                        side_set: None,
+                    }
+                ); 
+            },
+            None => {IN_RESET.store(true, Ordering::Relaxed); }
+        }
+        match DELAY_TX.as_mut(){
+            Some(tx) => { tx.write(step); },
+            None => {IN_RESET.store(true, Ordering::Relaxed); }
+        }
+        match COUNT_TX.as_mut(){
+            Some(tx) => { tx.write(count); },
+        None => {IN_RESET.store(true, Ordering::Relaxed); }
     }
-    tx.write(step);
-    sm.exec_instruction(
-        pio::Instruction { 
-            operands: pio::InstructionOperands::PULL { 
-                if_empty: false, 
-                block: true }, 
-                delay: 0, 
-                side_set: None,
-            }
-        );
-    sm.exec_instruction(
-        pio::Instruction { 
-                operands: pio::InstructionOperands::MOV {
-                     destination: pio::MovDestination::X, 
-                     op: pio::MovOperation::None, 
-                     source: pio::MovSource::OSR,
-                },
-                delay: 0, 
-                side_set: None,
-            }
-        );
-    alarm0.clear_interrupt();
+    // COUNT_TX.as_mut().unwrap().write(count);
+    match DIR_PIN.as_mut().unwrap().set_state(dir) {
+        Ok(_) => {},
+        Err(_) => {IN_RESET.store(true, Ordering::Relaxed);},
+    }
+    
+    // PIO1.as_mut().unwrap().force_irq(0); // 32 is 00100000, so clears irq 2??? idek anymore
+    // PIO1.as_mut().unwrap().irq0().state()
+    // .clear_irq(32); // 32 is 00100000, so clears irq 2??? idek anymore
+    // PIO1.as_mut().unwrap().clear_irq(32);
+    pac::NVIC::unpend(pac::Interrupt::PIO1_IRQ_1);
+
 }

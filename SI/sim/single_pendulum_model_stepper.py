@@ -241,7 +241,9 @@ if __name__ == '__main__':
     model = dipc_model()
     # model.ydot[2] = model.F
     # model.ydot[3] = (-(model.ma*model.F + 0.5*model.l*model.mb*-9.8*sp.sin(2*model.y[1]) - model.mb*model.l*(model.y[3]**2)*sp.sin(model.y[1]))*model.l*sp.cos(model.y[1]) + model.l*model.mb*-9.8*sp.sin(model.y[1]))/(model.mb*(model.l**2))
-    print(sp.simplify(model.ydot))
+    print(sp.simplify(sp.trigsimp(sp.expand(model.ydot))))
+    model.ydot = sp.simplify(sp.trigsimp(sp.expand(model.ydot)))
+    # exit()
     model.linearize().lambdify()
     print(repr(model.A), '\n\n', repr(model.B))
     model.construct_PP(eigs).construct_LQR(Q, R)

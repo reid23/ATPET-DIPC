@@ -14,24 +14,30 @@ def get_mpc():
     dy = model.set_variable('_x', 'dy', shape=(2, 1))
     f = model.set_variable('_u', 'f')
 
-    l = model.set_variable('_p', 'l')
-    ma = model.set_variable('_p', 'ma')
-    mb = model.set_variable('_p', 'mb')
-    ke = model.set_variable('_p', 'ke')
-    kf = model.set_variable('_p', 'kf')
+    # l = model.set_variable('_p', 'l')
+    # ma = model.set_variable('_p', 'ma')
+    # mb = model.set_variable('_p', 'mb')
+    # ke = model.set_variable('_p', 'ke')
+    # kf = model.set_variable('_p', 'kf')
 
-    # sp = model.set_variable('_tvp', 'sp')
-    sp = 0
+    # # sp = model.set_variable('_tvp', 'sp')
+    # sp = 0
 
     # -ke*dy[0]+12*f)-kf*dy[0]
 
+    # expr = vertcat(
+    #     f,
+    #     (-9.8*(ma + mb)*sin(y1) + (4.9*mb*sin(2*y1) - (ma + mb*sin(y1)**2)*f)*cos(y1))/(l*(ma + mb*sin(y1)**2))
+    # )
+    l = 0.21
     expr = vertcat(
         f,
-        (-9.8*(ma + mb)*sin(y1) + (4.9*mb*sin(2*y1) - (ma + mb*sin(y1)**2)*f)*cos(y1))/(l*(ma + mb*sin(y1)**2))
+        -(f*cos(y1) + 9.8*sin(y1))/l - 0.15*tanh(8*y1)
+        # -f*cos(y1)-(9.8/l)*sin(y1)
     )
 
-    PE = 100*9.8*l*mb*(1-cos(y1))
-    KE = 0.5*ma*dy[0]**2 + 0.5*mb*((sin(y1)*dy[1])**2 + (dy[0]+cos(y1)*dy[1])**2)
+    PE = 1000*l*(1-cos(y1))
+    KE = dy[0]**2 + ((sin(y1)*dy[1])**2 + (dy[0]+cos(y1)*dy[1])**2)
 
     model.set_expression('E_kin', KE)
     model.set_expression('E_pot', PE)
@@ -46,8 +52,8 @@ def get_mpc():
 
     mpc = do_mpc.controller.MPC(model)
 
-    tstep = 0.05
-    thorizon = 2
+    tstep = 0.07
+    thorizon = 0.7
     nhorizon = int(thorizon/tstep)
     setup_mpc = {
         'n_horizon': nhorizon,
@@ -74,11 +80,12 @@ def get_mpc():
     # l_term = 10*cos(y1) + 0.1*y0**2 + 0.1*dy[0]**2 + 0.1*dy[1]**2 + 0.3*f**2 # step cost
     # m_term = 10*cos(y1) + 0.1*y0**2 + 0.02*dy[0]**2 + 0.5*dy[1]**2 # terminal state cost
     # # m_term = 0*y1
-    l_term = model.aux['E_kin'] - 100*model.aux['E_pot'] + 50*(model.x['y_0'])**2
-    m_term = -100*model.aux['E_pot']+100*(model.x['y_0'])**2 # stage cost
+    l_term = 5*model.aux['E_kin'] + 10*dy[1]**2 - 15*model.aux['E_pot'] + (model.x['y_0'])**2
+    m_term = l_term
+    # m_term = -model.aux['E_pot']+(model.x['y_0'])**2 # stage cost
 
     mpc.set_objective(lterm=l_term, mterm = m_term)
-    mpc.set_rterm(f=100)
+    mpc.set_rterm(f=1)
 
 
     mpc.set_nl_cons('y_0', y0**2, 0.3**2, soft_constraint=True)
@@ -96,26 +103,9 @@ def get_mpc():
     mpc.bounds['upper','_u', 'f'] = 1
 
     # scaling
-    mpc.scaling['_x', 'y_0'] = 10
-    consts = [0.17, 0.8, 0.1, 0.00299, 25]
+    # mpc.scaling['_x', 'y_0'] = 10
+    # consts = [0.217, 0.8, 0.1, 0.00299, 25]
     # 0.16043	0.7101	0.08698	0.00230	19.14743
-    mpc.set_uncertainty_values(
-        # l = np.array([0.17, 0.15, 0.2]),
-        # ma = np.array([1]),
-        # mb = np.array([0.1, 0.13]),
-        # ke = np.array([0.00299, 0.004, 0.002]),
-        # kf = np.array([20, 15, 25])
-        # l = np.array([0.16043]),
-        # ma = np.array([0.7101]),
-        # mb = np.array([0.08698]),
-        # ke = np.array([0.0023]),
-        # kf = np.array([19.14743])
-        l = np.array([consts[0]]),
-        ma = np.array([consts[1]]),
-        mb = np.array([consts[2]]),
-        ke = np.array([consts[3]]),
-        kf = np.array([consts[4]])
-    )
     # 0.18319	0.77088	0.11271	0.00093	32.95541
     # 0.18319	0.77088	0.11271	0.00093	32.95541
 
@@ -134,14 +124,9 @@ def get_mpc():
     simulator.set_param(t_step = setup_mpc['t_step'])
 
     p_template = simulator.get_p_template()
-    p_template['l'] = consts[0]
-    p_template['ma'] = consts[1]
-    p_template['mb'] = consts[2]
-    p_template['ke'] = consts[3]
-    p_template['kf'] = consts[4]
+    # p_template['l'] = l
     def p_fun(t_now):
         return p_template
-        # return p_template
 
 
     simulator.set_p_fun(p_fun)
@@ -159,7 +144,7 @@ def get_mpc():
     # mpc.x0 = x0
 
     mpc.set_initial_guess()
-    # mpc.compile_nlp(overwrite = False) #set overwrite to true if things changed
+    mpc.compile_nlp(overwrite = True) #set overwrite to true if things changed
 
     return mpc, simulator, model
 
