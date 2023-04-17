@@ -15,14 +15,14 @@ with serial.Serial(port, 115200) as p:
         # p.readline()
         print('here')
         start = perf_counter()
-        with open('mpc_data_2.txt', 'w') as f:
+        with open('double_pend_mpc_data_2.txt', 'w') as f:
             while True:
                 # p.flush()
                 # sleep(0.02)
-                p.write(bytearray([0])+struct.pack('>i', int(pwr*10000))) # set power
+                p.write(bytearray([0])+struct.pack('>i', 0))#int(pwr*10000))) # set power
                 y = np.array(str(p.readline())[2:-3].split(','), dtype=float)
                 pwr = mpc.make_step(np.array([y[0], y[1], y[3], y[4]]))
-                print(f"{[perf_counter()-start, y[0], y[1], y[3], y[4], pwr]},", file=f)
+                print(f"{[perf_counter()-start, y[0], y[1], y[2], y[3], y[4], y[5], pwr]},", file=f)
                 # while perf_counter()-start < mpc.t_step-0.02:
                 #     pass
     except Exception as e:

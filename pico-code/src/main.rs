@@ -102,7 +102,7 @@ static K: [AtomicI32; 6] = [AtomicI32::new(0),
                             AtomicI32::new(0),
                             AtomicI32::new(0)];
 
-const RADS_PER_TICK: f32 = 2.0*3.14159265358979323/4096.0;
+const RADS_PER_TICK: f32 = PI/2048.0;
 
 
 #[entry]
@@ -447,11 +447,15 @@ unsafe fn USBCTRL_IRQ() {
                     //def fix_ang(x): return x+76 + 0.5*(cos(2*pi*(x+76)/4096)+1)*27
                     let angle = (TOP.load(Ordering::Relaxed) + 76);
                     let final_angle = (angle as f32 + 13.5*(1.0+(PI*(angle as f32)/2048.0).cos())) * RADS_PER_TICK;
+                    let angle2 = (END.load(Ordering::Relaxed) - 2206);
+                    let final_angle2 = (angle2 as f32 + 3.5*(1.0+(PI*(angle2 as f32)/2048.0).cos())) * RADS_PER_TICK;
+                    // 2206 0
+                    // 4247 pi
                     let mut message: String<100> = String::new();
                     let _ = write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", 
                         CART_POS.load(Ordering::Relaxed) as f32 / 10000.0,
                         -final_angle, 
-                        (END.load(Ordering::Relaxed) -  END_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK, 
+                        final_angle2,
                         CART_VEL.load(Ordering::Relaxed) as f32 / 10000.0,
                         VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0, 
                         VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0,
@@ -484,14 +488,24 @@ unsafe fn TIMER_IRQ_0() {
     let c = IRQ_COUNTER.load(Ordering::Relaxed);
     if c >= 4 {
         IRQ_COUNTER.store(0, Ordering::Relaxed);
-        let vt = OLD_VT.load(Ordering::Relaxed);
+        let angle = (TOP.load(Ordering::Relaxed) + 76);
+        let final_angle = (angle as f32 + 13.5*(1.0+((angle as f32)*RADS_PER_TICK).cos())) as i32;
+        let angle2 = (END.load(Ordering::Relaxed) - 2206);
+        let final_angle2 = (angle2 as f32 + 3.5*(1.0+((angle2 as f32)*RADS_PER_TICK).cos())) as i32;
+
+        let vt = (OLD_VT.load(Ordering::Relaxed) + 76);
+        let final_vt = (vt as f32 + 13.5*(1.0+((vt as f32)*RADS_PER_TICK).cos())) as i32;
+        let ve = (OLD_VE.load(Ordering::Relaxed) - 2206);
+        let final_ve = (ve as f32 +  3.5*(1.0+((ve as f32)*RADS_PER_TICK).cos())) as i32;
+        
+        // let vt = OLD_VT.load(Ordering::Relaxed);
         OLD_VT.store(TOP.load(Ordering::Relaxed), Ordering::Relaxed);
 
-        let ve = OLD_VE.load(Ordering::Relaxed);
+        // let ve = OLD_VE.load(Ordering::Relaxed);
         OLD_VE.store(END.load(Ordering::Relaxed), Ordering::Relaxed);
 
-        VT.store( -(TOP.load(Ordering::Relaxed) - vt), Ordering::Relaxed);
-        VE.store( END.load(Ordering::Relaxed) - ve, Ordering::Relaxed);
+        VT.store( -(final_angle - final_vt), Ordering::Relaxed);
+        VE.store( final_angle2 - final_ve, Ordering::Relaxed);
     } else {
         IRQ_COUNTER.store(c+1, Ordering::Relaxed);
     }
