@@ -30,7 +30,7 @@ def get_mpc():
     #     (-9.8*(ma + mb)*sin(y1) + (4.9*mb*sin(2*y1) - (ma + mb*sin(y1)**2)*f)*cos(y1))/(l*(ma + mb*sin(y1)**2))
     # )
     l, ma, mb, I = [0.24777857, 0.12615081, 0.06319876, 0.0036074 ]
-    l, ma, mb, I = [0.225, 0.126, 0.12, 0.0020]
+    l, ma, mb, I = [0.225, 0.126, 0.12, 0.0025]
     # l, ma, mb, I = np.array([1.15395098, 0.41613935, 1.76343964, 0.19017682])*np.array([0.217, 0.125, 0.05, 0.005])
     # l, ma, mb, I = np.array([1.1539, 0.41613935, 1, 0.5])*np.array([0.217, 0.125, 0.05, 0.005])
 
@@ -91,12 +91,12 @@ def get_mpc():
     # m_term = 10*cos(y1) + 0.1*y0**2 + 0.02*dy[0]**2 + 0.5*dy[1]**2 # terminal state cost
     # # m_term 
     # = 0*y1
-    l_term = 5*model.aux['E_kin']  - 50*model.aux['E_pot'] + 5*(model.x['y_0'])**2 + 50*dy[1]**2
+    l_term = 5*model.aux['E_kin'] - 50*model.aux['E_pot'] + 50*dy[1]**2
     m_term = l_term + 60*dy[1]**2
     # m_term = -model.aux['E_pot']+(model.x['y_0'])**2 # stage cost
 
     mpc.set_objective(lterm=l_term, mterm = m_term)
-    mpc.set_rterm(f=10)
+    mpc.set_rterm(f=20)
 
 
     # mpc.set_nl_cons('y_0', y0**2, 0.4**2, soft_constraint=True)
@@ -111,10 +111,10 @@ def get_mpc():
     # mpc.bounds['upper','_x', 'y_1'] = 11
 
     mpc.set_nl_cons('vcon', dy[0]**2<2**2)
-    mpc.set_nl_cons('pain', cos(y1)*(dy[1]**2)<4**2, soft_constraint=True)
+    mpc.set_nl_cons('pain', -cos(y1)*(dy[1]**2)<4**2, soft_constraint=True)
     # bounds on input:
-    mpc.bounds['lower','_u', 'f'] = -1.2
-    mpc.bounds['upper','_u', 'f'] = 1.2
+    mpc.bounds['lower','_u', 'f'] = -2.5
+    mpc.bounds['upper','_u', 'f'] = 2.5
 
     # scaling
     # mpc.scaling['_x', 'y_0'] = 10
