@@ -40,7 +40,7 @@ def eval_fourier(t, weights):
     return np.array([1]+[np.cos(n*t) for n in range(1, 50)]+[np.sin(n*t) for n in range(1, 50)])@weights
 class dipc_model:
        #                                                            0.084            0.0007621
-    def __init__(self, constants=[0.3, 0.2,   0.5,   1, 9.81, 0.25, 0.125, 0.125, 0.00065, 0.00065]):
+    def __init__(self, constants=[0.3, 0.2,   0.67,   1, 9.81, 0.125, 0.1, 0.07, 0.0035, 0.002]): #0.333333333*0.070348348*(0.292^2)
         self.K = {}
         self.constants = constants
         self.y = dynamicsymbols('y:6')
@@ -96,7 +96,8 @@ class dipc_model:
 
         a = sp.Symbol('a')
         print('ydot[3]:')
-        print(sp.solve(sp.Eq(self.ydot[3], a), self.F), open("sp_soln.txt", "w"))
+        print(sp.Eq(self.ydot[3], a))
+        print(sp.solveset(sp.Eq(self.ydot[3], a), self.F, sp.S.Reals), open("sp_soln.txt", "w"))
     def linearize(self, op_point=[0,sp.pi,0,0,0,0]):
         op_point=dict(zip(
             self.y+[self.F,
@@ -149,7 +150,7 @@ class dipc_model:
                 if t<i:
                     forces.append([t, ctrl(t, lag_buffer.pop(0)-targets[counter])])
                     break
-                if i>target_timestamps[-1]: 
+                if i>target_timestamps[-1]:
                     forces.append([t, 0]) # stop control.
                     lag_buffer.pop(0)
             return self.func(x, forces[-1][1], *self.constants).flatten()
@@ -232,9 +233,12 @@ if __name__ == '__main__':
 
     Q = np.diag([100, 10, 5, 1, 100, 50])
     R = np.diag([10])
-    model = dipc_model().linearize().lambdify()
+    model = dipc_model().linearize(op_point=[0,sp.pi,sp.pi,0,0,0]).lambdify()
+    # exit()
+    model.construct_PP(eigs).construct_LQR(Q, R)
+    print(model.K)
     exit()
-    # .construct_PP(eigs).construct_LQR(Q, R).integrate_with_scipy(y_0 = [0,0,0,0,0,0], targets = np.array([[  0, np.pi, 0, 0, 0, 0]]), target_timestamps = [0, 1.5], controller = 'FFBF')
+    model.integrate_with_scipy(y_0 = [0,0,0,0,0,0], targets = np.array([[  0, np.pi, 0, 0, 0, 0]]), target_timestamps = [0, 1.5], controller = 'FFBF')
     # model.print_eoms()
     print("ydot:")
     print(model.ydot)

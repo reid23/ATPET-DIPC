@@ -35,11 +35,12 @@ import matplotlib.animation as animation
 
 class dipc_model:
     def __init__(self, constants={ # [0.15, 40, 9.8, 0.125, 0.125, 1.74242, 0.04926476]
-            'L':  0.15, # length of pend com, in meters
+            'L':  0.217, # length of pend com, in meters
             'ma': 0.125, # mass of cart (kg)
-            'mb': 0.125, # mass of pendulum (kg)
-            'kE': 0.00474448, # constant for motor force proportional to voltage applied
-            'kF': 0.04926477 # friction
+            'mb': 0.12, # mass of pendulum (kg)
+            'I':  0.0002, # central moment of inerta
+            'kE': 10, # constant for motor force proportional to voltage applied
+            'kF': 10 # friction
         }): 
         self.K = {'None':np.array([[0,0,0,0]])}
         self.constants = list(constants.values())
@@ -54,7 +55,7 @@ class dipc_model:
         # g is gravity (positive)
         # t is time
 
-        self.ma, self.mb = symbols('m_a, m_b')
+        self.ma, self.mb, self.I = symbols('m_a, m_b, I')
         # ma is mass of cart
         # mb is mass of first pendulum
 
@@ -64,7 +65,7 @@ class dipc_model:
 
         self.track = Body('N')
         self.cart = Body('C', mass=self.ma)
-        self.top_pend = Body('P_1', mass=self.mb)
+        self.top_pend = Body('P_1', mass=self.mb, central_inertia=inertia(self.cart.frame, 0, 0, self.I))
 
         self.slider = PrismaticJoint('slider', self.track, self.cart, coordinates = self.y[0], speeds = self.y[2], parent_axis = self.track.x)
         self.rev1 = PinJoint('r1', self.cart, self.top_pend, coordinates=self.y[1], speeds=self.y[3],
@@ -82,16 +83,46 @@ class dipc_model:
 
                                                # self.mb*(self.l*self.y[3]**2 + 9.8*sp.cos(self.y[1]))*sp.sin(self.y[1])/(self.ma + self.mb*sp.sin(self.y[1])**2)
         # self.cart.apply_force((self.ma*self.F - (self.mb*(self.l*self.y[3]**2 + 9.8*sp.cos(self.y[1]))*sp.sin(self.y[1])/(self.ma + self.mb*sp.sin(self.y[1])**2)))*self.cart.x)
-        self.cart.apply_force((self.F*(self.ma+self.mb*sp.sin(self.y[1])**2) - self.l*self.mb*(self.y[3]**2)*sp.sin(self.y[1]) - 4.9*self.mb*sp.sin(2*self.y[1]))*self.cart.x)
+        # self.cart.apply_force((self.F*(self.ma+self.mb*sp.sin(self.y[1])**2) - self.l*self.mb*(self.y[3]**2)*sp.sin(self.y[1]) - 4.9*self.mb*sp.sin(2*self.y[1]))*self.cart.x)
+        self.cart.apply_force(self.F*self.cart.x)
+        # self.cart.apply_force(((self.I*self.F*self.ma + self.I*self.F*self.mb - self.I*self.l*self.mb*(self.y[3]**2)*sp.sin(self.y[1]) + self.F*(self.l**2)*self.ma*self.mb - self.F*(self.l**2)*(self.mb**2)*(sp.cos(self.y[1])**2) + self.F*(self.l**2)*(self.mb**2) - (self.l**3)*(self.mb**2)*(self.y[3]**2)*sp.sin(self.y[1]) - 4.9*(self.l**2)*(self.mb**2)*sp.sin(2.0*self.y[1]))/(self.I + (self.l**2)*self.mb))*self.cart.x)
         # gravity
         # self.cart.apply_force(-self.track.y*self.cart.mass*self.g)
         self.top_pend.apply_force(-self.track.y*self.top_pend.mass*9.8)
 
         # get equations of motion
         self.method = JointsMethod(self.track, self.slider, self.rev1)
+        print('method made')
         self.method.form_eoms()
+        print('eoms made')
         self.ydot = self.method.rhs()
+        print('rhs made')
+
+        a = dynamicsymbols('a')
+        f = sp.solve(sp.Eq(a, self.ydot[2]), self.F)[0]
+        print(f)
+        # print(f.subs(a, self.F))
+        print('here')
+        self.ydot[2] = self.F
+        self.ydot[3] = self.ydot[3].subs(self.F, f)
+        print(self.ydot)
+
+        # print('expand:')
+        # self.ydot[3] = sp.expand(self.ydot[3])
+        # sp.pprint(self.ydot[3])
+
+        # print('trig simplify:')
+        # self.ydot[3] = sp.trigsimp(self.ydot[3])
+        # sp.pprint(self.ydot[3])
+
+        # print('fully simplified:')
+        # self.ydot[3] = sp.simplify(self.ydot[3])
+        # sp.pprint(self.ydot[3])
+        self.ydot[3] = sp.simplify(self.ydot[3])
+        sp.pprint(self.ydot[3])
+        self.ydot = self.ydot.subs(a, self.F)
         self.A_sym, self.B_sym = self.method.method.to_linearizer().linearize(A_and_B=True, simplify=True)
+
     def set_constants(self, new_constants):
         self.constants = new_constants
         return self
@@ -102,6 +133,7 @@ class dipc_model:
                self.l,
                self.ma,
                self.mb,
+               self.I,
                self.kE,
                self.kF,
             ], 
@@ -110,7 +142,7 @@ class dipc_model:
         self.A, self.B = np.array(self.A).astype(np.float64), np.array(self.B).astype(np.float64)
         return self
     def lambdify(self):
-        self.func = sp.lambdify([self.y, self.F, self.l, self.ma, self.mb, self.kE, self.kF], self.ydot, 'numpy')
+        self.func = sp.lambdify([self.y, self.F, self.l, self.ma, self.mb, self.I, self.kE, self.kF], self.ydot, 'numpy')
         # self.func = sp.lambdify([self.y, self.F, self.lb, self.lc, self.lcom, self.c, self.g, self.ma, self.mb, self.mc, self.IBzz, self.ICzz], self.ydot, 'numpy')
         return self
     def construct_PP(self, eigs):
@@ -241,15 +273,19 @@ if __name__ == '__main__':
     model = dipc_model()
     # model.ydot[2] = model.F
     # model.ydot[3] = (-(model.ma*model.F + 0.5*model.l*model.mb*-9.8*sp.sin(2*model.y[1]) - model.mb*model.l*(model.y[3]**2)*sp.sin(model.y[1]))*model.l*sp.cos(model.y[1]) + model.l*model.mb*-9.8*sp.sin(model.y[1]))/(model.mb*(model.l**2))
-    print(sp.simplify(sp.trigsimp(sp.expand(model.ydot))))
-    model.ydot = sp.simplify(sp.trigsimp(sp.expand(model.ydot)))
+    # print(sp.simplify(sp.trigsimp(sp.expand(model.ydot))))
+    # model.ydot = sp.simplify(sp.trigsimp(sp.expand(model.ydot)))
     # exit()
+    model.set_constants(np.array([1.14183672, 1.00920648, 1.26397524, 0.72148083])*np.array([0.217, 0.125, 0.05, 0.005]))
+    print('ydot:')
+    print(model.ydot)
+    print('end ydot!')
     model.linearize().lambdify()
     print(repr(model.A), '\n\n', repr(model.B))
     model.construct_PP(eigs).construct_LQR(Q, R)
     print(model.get_eigs('PP')[0])
     print(model.B@model.K['PP'])
-    model.set_constants([0.22, 1, 0.12, 0.00299,  22])
+    model.set_constants([0.22, 1, 0.12, 0.0002, 0.00299,  22])
     # print(model.K['PP'])
     model.integrate_with_scipy(
         y_0 = [0, (0.5)*np.pi, 0, 0], 

@@ -38,6 +38,7 @@ class dipc_model:
             'L':  0.15, # length of pend com, in meters
             'ma': 0.125, # mass of cart (kg)
             'mb': 0.125, # mass of pendulum (kg)
+            'I': 0.0002, # inertia of pendulum
             'kE': 0.00474448, # constant for motor force proportional to voltage applied
             'kF': 0.04926477 # friction
         }): 
@@ -54,7 +55,7 @@ class dipc_model:
         # g is gravity (positive)
         # t is time
 
-        self.ma, self.mb = symbols('m_a, m_b')
+        self.ma, self.mb, self.I = symbols('m_a, m_b, I')
         # ma is mass of cart
         # mb is mass of first pendulum
 
@@ -64,7 +65,7 @@ class dipc_model:
 
         self.track = Body('N')
         self.cart = Body('C', mass=self.ma)
-        self.top_pend = Body('P_1', mass=self.mb)
+        self.top_pend = Body('P_1', mass=self.mb, central_inertia=self.I)
 
         self.slider = PrismaticJoint('slider', self.track, self.cart, coordinates = self.y[0], speeds = self.y[2], parent_axis = self.track.x)
         self.rev1 = PinJoint('r1', self.cart, self.top_pend, coordinates=self.y[1], speeds=self.y[3],
