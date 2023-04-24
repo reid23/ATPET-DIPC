@@ -1,24 +1,24 @@
 from SI import data_collection as Pendulum
 from time import sleep
-from SI.sim import single_pendulum_model
+from SI.sim import single_pendulum_model_stepper
 import numpy as np
 eigs = np.array([
-    [-5.5], 
-    [-5.4],
-    [-5.3],
-    [-5.2],
-][::-1])*2
+    [-5], 
+    [-4],
+    [-3],
+    [-2],
+])*2.5
 
-Q = np.diag([10000, 10000000, 3, 10])
-R = np.diag([0.1])
-model = (single_pendulum_model.dipc_model()
+Q = np.diag([500, 100, 1, 100])
+R = np.diag([1])
+model = (single_pendulum_model_stepper.dipc_model()
     .linearize()
-    .set_constants([0.15, 0.77088, 0.11271, 0.00093, 32.95541])
+    .set_constants([0.24, 0.11, 0.1, 0.001, 10, 10])
     .construct_PP(eigs)
     .construct_LQR(Q, R))
 PP, LQR = list(model.K['PP'][0]), list(model.K['LQR'][0])
 print(PP, LQR)
-print(model.get_eigs('LQR'))
+print(model.get_eigs('PP'))
 LQR.insert(2, 0)
 LQR.append(0)
 PP.insert(2, 0)

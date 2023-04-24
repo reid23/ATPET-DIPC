@@ -30,7 +30,8 @@ def get_mpc():
     #     (-9.8*(ma + mb)*sin(y1) + (4.9*mb*sin(2*y1) - (ma + mb*sin(y1)**2)*f)*cos(y1))/(l*(ma + mb*sin(y1)**2))
     # )
     l, ma, mb, I = [0.24777857, 0.12615081, 0.06319876, 0.0036074 ]
-    l, ma, mb, I = [0.24, 0.11, 0.1, 0.001 ]
+    l, ma, mb, I = [0.24, 0.126, 0.06, 0.0015 ]
+    # l, ma, mb, I = np.array([2.00180202, 0.67629836, 4.79490312, 0.88592272])*np.array([0.217, 0.125, 0.05, 0.005])
 
 
     # l = 0.22
@@ -38,16 +39,17 @@ def get_mpc():
 
     expr = vertcat(
         f,
-        l*mb*(-9.8*(I + l**2*mb)*(ma + mb)*sin(y1) - (1.0*I*ma*f + 1.0*I*mb*f + 1.0*l**2*ma*mb*f + 1.0*l**2*mb**2*f*sin(y1)**2 - 4.9*l**2*mb**2*sin(2.0*y1))*cos(y1))/((I + l**2*mb)*(-l**2*mb**2*cos(y1)**2 + (I + l**2*mb)*(ma + mb)))
+        l*mb*(-9.8*(I + l**2*mb)*(ma + mb)*sin(y1) - (1.0*I*ma*f + 1.0*I*mb*f + 1.0*l**2*ma*mb*f + 1.0*l**2*mb**2*f*sin(y1)**2 - 4.9*l**2*mb**2*sin(2.0*y1))*cos(y1))/((I + l**2*mb)*(-l**2*mb**2*cos(y1)**2 + (I + l**2*mb)*(ma + mb))) 
     )
+    # l=0.21
     # expr = vertcat(
     #     f,
-    #     -(f*cos(y1) + 9.8*sin(y1))/l - 0.1*tanh(10*y1)
-    #     # -f*cos(y1)-(9.8/l)*sin(y1)
+    #     -(f*cos(y1) + 9.8*sin(y1))/l - 0.05*tanh(10*dy[1])
+    # #     # -f*cos(y1)-(9.8/l)*sin(y1)
     # )
 
     PE = 1000*l*(1-cos(y1))
-    KE = dy[0]**2 + ((sin(y1)*dy[1])**2 + (dy[0]+cos(y1)*dy[1])**2)
+    KE = dy[1]**2 #((sin(y1)*dy[1])**2 + (dy[0]+cos(y1)*dy[1])**2)
 
     model.set_expression('E_kin', KE)
     model.set_expression('E_pot', PE)
@@ -70,11 +72,6 @@ def get_mpc():
         't_step': tstep,
         'open_loop': 0,
         'n_robust': 0,
-        # 'store_full_solution': True,
-        # 'state_discretization': 'collocation',
-        # 'collocation_type': 'radau',
-        # 'collocation_deg': 3,
-        # 'collocation_ni': 1,
         'store_full_solution': True,
     }
     mpc.set_param(**setup_mpc)
@@ -89,8 +86,9 @@ def get_mpc():
 
     # l_term = 10*cos(y1) + 0.1*y0**2 + 0.1*dy[0]**2 + 0.1*dy[1]**2 + 0.3*f**2 # step cost
     # m_term = 10*cos(y1) + 0.1*y0**2 + 0.02*dy[0]**2 + 0.5*dy[1]**2 # terminal state cost
-    # # m_term = 0*y1
-    l_term = 5*model.aux['E_kin']  - 15*model.aux['E_pot'] + (model.x['y_0'])**2 + 5*dy[1]**2
+    # # m_term 
+    # = 0*y1
+    l_term = 5*model.aux['E_kin']  - 50*model.aux['E_pot'] + (model.x['y_0'])**2 + 20*dy[1]**2
     m_term = l_term + 20*dy[1]**2
     # m_term = -model.aux['E_pot']+(model.x['y_0'])**2 # stage cost
 
@@ -106,11 +104,14 @@ def get_mpc():
     mpc.bounds['lower','_x', 'y_0'] = -0.4
     mpc.bounds['upper','_x', 'y_0'] = 0.4
 
-    mpc.set_nl_cons('vcon', dy[0]**2<0.7**2)
+    mpc.bounds['lower','_x', 'y_1'] = -11
+    mpc.bounds['upper','_x', 'y_1'] = 11
+
+    mpc.set_nl_cons('vcon', dy[0]**2<1.5**2)
 
     # bounds on input:
-    mpc.bounds['lower','_u', 'f'] = -2
-    mpc.bounds['upper','_u', 'f'] = 2
+    mpc.bounds['lower','_u', 'f'] = -2.5
+    mpc.bounds['upper','_u', 'f'] = 2.5
 
     # scaling
     # mpc.scaling['_x', 'y_0'] = 10

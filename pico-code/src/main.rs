@@ -102,6 +102,13 @@ static K: [AtomicI32; 6] = [AtomicI32::new(0),
                             AtomicI32::new(0),
                             AtomicI32::new(0)];
 
+static SP: [AtomicI32; 6] = [AtomicI32::new(0),
+                            AtomicI32::new(0),
+                            AtomicI32::new(0),
+                            AtomicI32::new(0),
+                            AtomicI32::new(0),
+                            AtomicI32::new(0)];
+
 const RADS_PER_TICK: f32 = PI/2048.0;
 
 
@@ -360,7 +367,6 @@ fn main() -> ! {
                     CART_ACC.store(0, Ordering::Relaxed);
                     MODE.store(0, Ordering::Relaxed);
                 } else {
-                    //TODO: fix this
                     CART_ACC.store(-(10000.0*
                         (CART_POS.load(Ordering::Relaxed) as f32 * 0.00001 * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
                         + top_err * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
