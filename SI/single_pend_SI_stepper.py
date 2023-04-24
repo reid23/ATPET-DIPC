@@ -30,7 +30,7 @@ def stepper_cost(t0, constants):
     # print(istart, iend, soln)
     return np.sum((soln.y.T - data[istart:iend, 1:5])**2)
 
-def cost(ga_instance, consts, solution_idx):
+def cost(consts):
     cost = sum(stepper_cost(i, consts) for i in np.arange(0, 225, int(225/16)))
     # cost = sum(np.array(pool.starmap(stepper_cost, [(i, consts) for i in np.arange(0, 225, int(225/16))])))
     global best_cost
@@ -40,43 +40,43 @@ def cost(ga_instance, consts, solution_idx):
         best_consts = consts
         # print('here!')
     print(cost, consts, best_cost, best_consts)
-    return 100000/cost
+    return cost
 
-if __name__ == '__main__':
-    import pygad
+# if __name__ == '__main__':
+#     import pygad
 
-    function_inputs = np.array([1,1,1,1])
-    fitness_function = cost
+#     function_inputs = np.array([1,1,1,1])
+#     fitness_function = cost
 
-    num_generations = 50
-    num_parents_mating = 10
+#     num_generations = 50
+#     num_parents_mating = 10
 
-    sol_per_pop = 30
-    num_genes = len(function_inputs)
+#     sol_per_pop = 30
+#     num_genes = len(function_inputs)
 
-    init_range_low = -2
-    init_range_high = 5
+#     init_range_low = -2
+#     init_range_high = 5
 
-    parent_selection_type = "sss"
-    keep_parents = 1
+#     parent_selection_type = "sss"
+#     keep_parents = 1
 
-    crossover_type = "single_point"
+#     crossover_type = "single_point"
 
-    mutation_type = "random"
-    mutation_percent_genes = 30
+#     mutation_type = "random"
+#     mutation_percent_genes = 30
 
-    ga_instance = pygad.GA(num_generations=num_generations,
-                        num_parents_mating=num_parents_mating,
-                        fitness_func=fitness_function,
-                        sol_per_pop=sol_per_pop,
-                        num_genes=num_genes,
-                        init_range_low=init_range_low,
-                        init_range_high=init_range_high,
-                        parent_selection_type=parent_selection_type,
-                        keep_parents=keep_parents,
-                        crossover_type=crossover_type,
-                        mutation_type=mutation_type,
-                        mutation_percent_genes=mutation_percent_genes,)
+#     ga_instance = pygad.GA(num_generations=num_generations,
+#                         num_parents_mating=num_parents_mating,
+#                         fitness_func=fitness_function,
+#                         sol_per_pop=sol_per_pop,
+#                         num_genes=num_genes,
+#                         init_range_low=init_range_low,
+#                         init_range_high=init_range_high,
+#                         parent_selection_type=parent_selection_type,
+#                         keep_parents=keep_parents,
+#                         crossover_type=crossover_type,
+#                         mutation_type=mutation_type,
+#                         mutation_percent_genes=mutation_percent_genes,)
                         # parallel_processing=['process', 4])
 
     # print(ga_instance.run())
@@ -92,7 +92,7 @@ except:
 
 # %%
 plt.plot(data[:450, 0], data[:450, 1:5])
-soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(y, data[np.searchsorted(data[:, 0], t), -1], *(np.array([2.00180202, 0.67629836, 4.79490312, 0.88592272])*np.array([0.217, 0.125, 0.05, 0.005])), 10, 10).flatten(), 
+soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(y, data[np.searchsorted(data[:, 0], t), -1], *np.array([0.217, 0.125, 0.05, 0.005]), 10, 10).flatten(), 
                                     y0=data[0, 1:5], 
                                     t_span=(0, 5), 
                                     t_eval=data[4:430, 0])
