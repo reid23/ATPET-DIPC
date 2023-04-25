@@ -31,8 +31,8 @@ use micromath::F32Ext;
 
 // const STEPS_PER_MM: i32 = 10; // unused
 const PIO_FREQ: u32 = 5_000_000; // Hz
-const MAX_SPEED: i32 = 1000; // mm/s
-const MAX_ACCELERATION: i32 = 1000; //mm/s^2
+const MAX_SPEED: i32 = 1500; // mm/s
+const MAX_ACCELERATION: i32 = 1500; //mm/s^2
 const STEPPER_VELOCITY_UPDATE_TIME: u32 = 10_000; // in us (5 ticks/us, so max (5*this)/19 steps, min speed 0.1/5*this mm/s)
 
 

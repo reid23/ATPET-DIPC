@@ -61,7 +61,7 @@ class Pendulum:
             except AttributeError:
                 pass
             except Exception as e:
-                print(e)
+                print(e, file=file)
                 pass
             if not file is None: 
                 # print(self.y)
@@ -73,11 +73,20 @@ class Pendulum:
             power (float): power level in [-1, 1] to send to motor
         """
         self.pwr = int(power*10000)
+    def set_SP(self, SP):
+        """sets setpoints to the given list.
+
+        Args:
+            SP (list[float]): list of length 3 containing setpoints in the format `[x, θt, θe]`
+        """
+        for idx, i in enumerate(SP):
+            self.ser.write(bytearray([idx+11])+struct.pack('>f', i))
+            sleep(0.05)
     def set_K(self, K):
         """sets gain matrix K to the given list.
 
         Args:
-            K (list): list of length 6 containing gains in the format `[x, θt, θe, ẋ, θ̇t, θ̇]`
+            K (list[float]): list of length 6 containing gains in the format `[x, θt, θe, ẋ, θ̇t, θ̇]`
         """
         for idx, i in enumerate(K):
             self.ser.write(bytearray([idx+2])+struct.pack('>f', i))

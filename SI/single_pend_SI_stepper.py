@@ -11,8 +11,9 @@ with open('mpc_data.txt', 'r') as f:
     data = np.array(eval(f.read()))
 
 data = data[10:-10]
-data[0, :] -= data[0, 0] 
-
+data[:, 0] -= data[0, 0] 
+# data[:, -1] = np.clip(data[:, -1], -0.5, 0.5)
+print(data[:10])
 
 model = dipc_model().lambdify()
 func = model.func
@@ -31,13 +32,13 @@ def stepper_cost(t0, constants):
     return np.sum((soln.y.T - data[istart:iend, 1:5])**2)
 
 def cost(consts):
-    cost = sum(stepper_cost(i, consts) for i in np.arange(0, 225, int(225/16)))
+    cost = sum(stepper_cost(i, consts) for i in np.arange(0, 225, int(225/32)))
     # cost = sum(np.array(pool.starmap(stepper_cost, [(i, consts) for i in np.arange(0, 225, int(225/16))])))
     global best_cost
     global best_consts
     if best_cost > cost: 
         best_cost = cost
-        best_consts = consts
+        best_consts = consts*weights
         # print('here!')
     print(cost, consts, best_cost, best_consts)
     return cost
@@ -91,10 +92,20 @@ except:
 
 
 # %%
-plt.plot(data[:450, 0], data[:450, 1:5])
-soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(y, data[np.searchsorted(data[:, 0], t), -1], *np.array([0.217, 0.125, 0.05, 0.005]), 10, 10).flatten(), 
+#[ 1.41713816,  3.48891797, -1.69523664,  1.60384412][0.217, 0.125, 0.05, 0.005]
+plt.plot(data[:450, 0], data[:450, 1], label='x')
+plt.plot(data[:450, 0], data[:450, 2], label='theta')
+plt.plot(data[:450, 0], data[:450, 3], label='x dot')
+plt.plot(data[:450, 0], data[:450, 4], label='theta dot')
+plt.plot(data[:450, 0], data[:450, 5], label='u')
+
+soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(y, data[np.searchsorted(data[:, 0], t), -1], *([0.217, 0.125, 0.1, 0.005]), 10, 10).flatten(), 
                                     y0=data[0, 1:5], 
                                     t_span=(0, 5), 
                                     t_eval=data[4:430, 0])
-plt.plot(soln.t, soln.y.T, linestyle='dashed')
+plt.plot(soln.t, soln.y.T[:, 0], linestyle='dashed', label='x')
+plt.plot(soln.t, soln.y.T[:, 1], linestyle='dashed', label='theta')
+plt.plot(soln.t, soln.y.T[:, 2], linestyle='dashed', label='x dot')
+plt.plot(soln.t, soln.y.T[:, 3], linestyle='dashed', label='theta dot')
+plt.legend()
 plt.show()

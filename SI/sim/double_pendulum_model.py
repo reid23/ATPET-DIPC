@@ -237,6 +237,7 @@ if __name__ == '__main__':
     # exit()
     model.construct_PP(eigs).construct_LQR(Q, R)
     print(model.K)
+    print(sp.latex(model.ydot))
     exit()
     model.integrate_with_scipy(y_0 = [0,0,0,0,0,0], targets = np.array([[  0, np.pi, 0, 0, 0, 0]]), target_timestamps = [0, 1.5], controller = 'FFBF')
     # model.print_eoms()
