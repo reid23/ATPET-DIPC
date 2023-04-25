@@ -32,7 +32,7 @@ def get_mpc():
     l, ma, mb, I = [0.24777857, 0.12615081, 0.06319876, 0.0036074 ]
     l, ma, mb, I = [0.247, 0.126, 0.063, 0.001]
     l, ma, mb, I = [0.257, 0.126, 0.075, 0.001] # good
-    # l, ma, mb, I = [0.257, 0.126, 0.06, 0.0015]
+    l, ma, mb, I = [0.257, 0.126, 0.063, 0.001]
 
 
 
@@ -96,12 +96,12 @@ def get_mpc():
     # m_term = 10*cos(y1) + 0.1*y0**2 + 0.02*dy[0]**2 + 0.5*dy[1]**2 # terminal state cost
     # # m_term 
     # = 0*y1
-    l_term = 3*model.aux['E_kin'] - 50*model.aux['E_pot'] + 20*dy[1]**2 - 10*cos(y1)*(dy[1]**2)
+    l_term = 3*model.aux['E_kin'] - 50*model.aux['E_pot'] + 20*dy[1]**2 - 20*cos(y1)*(dy[1]**2)
     m_term = l_term
     # m_term = -model.aux['E_pot']+(model.x['y_0'])**2 # stage cost
 
     mpc.set_objective(lterm=l_term, mterm = m_term)
-    mpc.set_rterm(f=10)
+    mpc.set_rterm(f=5)
 
 
     # mpc.set_nl_cons('y_0', y0**2, 0.4**2, soft_constraint=True)
