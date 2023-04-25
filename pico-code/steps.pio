@@ -5,68 +5,7 @@
 .wrap_target
 mov x, osr
 loop:
-jmp x-- loop
-set pins 1 [7]
-set pins 0 [5]
-.wrap
-
-
-
-.program step
-; program timing: 
-; t = 4 + delay + hi(8) + lo(3) + 1 
-;   = 16+delay ticks (3.2+delay/5 us)
-; this program deals with 1 step and delay
-.wrap_target
-
-wait 1 irq 3 ; wait for other sm to request a step
-
-pull noblock ; if there's a new step time value, get it
-mov x osr    ; this won't change x if osr is empty
-
-countloop:
-    jmp x-- countloop ; decrement x and loop to waste the correct amt of time
-
-; nop [13]
-set pins 1 [8] ; 7 = 1.4us, min step pulse len is 1 us
-set pins 0 [3]  ; finish the blip, with 5 less delay for [irq, pull, mov, jmp, irq]
-    ; this program will always take 20 ticks to wrap
-
-irq clear 3 ; clear irq that started this blip
-
-.wrap
-
-.program stepcaller
-; this program runs multiple steps using prev program
-; program timing:
-; t = 3 + n_steps*[step[4 + delay + hi(8) + lo(3) + 1]] + (n_steps-1)*3 
-;   = n_steps * [step + 3] 
-;   = n_steps*(delay+19)
-
-.wrap_target
-
-irq wait 2 ; raise irq to get num steps
-pull ; get num steps (cpu sent them)
-mov x osr ; save num steps to x
-
-start:
-jmp x-- loop
-jmp done
-
-loop:
-    irq wait 3
-    jmp start
-
-done:
-    nop
-
-; loop:
-;     irq wait 3 ; send 1 step, wait for completion
-;     jmp x-- loop [2]; decrease x (it's our loop counter)
-;     ; also delay 2 bc irq, pull, mov take 3 before so we want
-;     ; 3 total delay for this loop as well
-; irq wait 3 ; send 1 final step, no wait afterward!
-; ; this makes step count accurate (bc do:while isn't for:)
-; ; and makes us not double-delay after last step
-
+    jmp x-- loop ; wait for correct amt of time
+    set pins 1 [7]
+    set pins 0 [5]
 .wrap

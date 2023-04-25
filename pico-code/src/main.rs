@@ -31,8 +31,8 @@ use micromath::F32Ext;
 
 // const STEPS_PER_MM: i32 = 10; // unused
 const PIO_FREQ: u32 = 5_000_000; // Hz
-const MAX_SPEED: i32 = 5000; // mm/s
-const MAX_ACCELERATION: i32 = 40000; //mm/s^2
+const MAX_SPEED: i32 = 1000; // mm/s
+const MAX_ACCELERATION: i32 = 1000; //mm/s^2
 const STEPPER_VELOCITY_UPDATE_TIME: u32 = 10_000; // in us (5 ticks/us, so max (5*this)/19 steps, min speed 0.1/5*this mm/s)
 
 
@@ -49,7 +49,7 @@ impl GetPeriod for i32{
         let dir = if self < &0 {PinState::High} else {PinState::Low};
         let delay = PIO_FREQ / pwr.abs() as u32;
         if delay < 19 {return Err("speed too high (took too much of itself lmao)");}
-        Ok((dir, delay-14)) // 19 is len of pio program, PIO_FREQ/1_000_000 is pio ticks/us
+        Ok((dir, delay-14)) // 14 is len of pio program, PIO_FREQ/1_000_000 is pio ticks/us
     }
 }
 static RAW_TOP: AtomicI32 = AtomicI32::new(0);
@@ -90,7 +90,7 @@ static VE: AtomicI32 = AtomicI32::new(0);
 static TOP: AtomicI32 = AtomicI32::new(0);
 static END: AtomicI32 = AtomicI32::new(0);
 
-static TOP_OFFSET: AtomicI32 = AtomicI32::new(2954-18);
+static TOP_OFFSET: AtomicI32 = AtomicI32::new(68);
 static END_OFFSET: AtomicI32 = AtomicI32::new(0);
 
 static TOP_ROTS: AtomicI32 = AtomicI32::new(0);
@@ -102,12 +102,9 @@ static K: [AtomicI32; 6] = [AtomicI32::new(0),
                             AtomicI32::new(0),
                             AtomicI32::new(0)];
 
-static SP: [AtomicI32; 6] = [AtomicI32::new(0),
-                            AtomicI32::new(0),
-                            AtomicI32::new(0),
-                            AtomicI32::new(0),
-                            AtomicI32::new(0),
-                            AtomicI32::new(0)];
+static SP: [AtomicI32; 3] = [AtomicI32::new(0), //cart setpoint  (m)
+                            AtomicI32::new(0),  //top setpoint (rad)
+                            AtomicI32::new(0)]; //end setpoint (rad)
 
 const RADS_PER_TICK: f32 = PI/2048.0;
 
@@ -338,6 +335,7 @@ fn main() -> ! {
         else if de < -3500 && de >= -4096 { END_ROTS.store(end_rots + 1, Ordering::Relaxed); end_rots += 1;}
         
         let (t, e) = (top_pos+top_rots*4096, end_pos+end_rots*4096);
+
         TOP.store(t, Ordering::Relaxed);
         END.store(e, Ordering::Relaxed);
         
@@ -360,20 +358,16 @@ fn main() -> ! {
                 //do nothing, we already set power in usb irq
             },
             1 => { //local
-                let top_err = -(((t+76) as f32 + 13.5*(1.0+(PI*((t+76) as f32)/2048.0).cos())) * RADS_PER_TICK) - PI;
-                // let top_err = (t - TOP_OFFSET.load(Ordering::Relaxed)) as f32 * RADS_PER_TICK - PI;
-                if top_err > PI/2.0 || top_err < -PI/2.0 {
-                    CART_VEL.store(0, Ordering::Relaxed);
-                    CART_ACC.store(0, Ordering::Relaxed);
-                    MODE.store(0, Ordering::Relaxed);
-                } else {
-                    CART_ACC.store(-(10000.0*
-                        (CART_POS.load(Ordering::Relaxed) as f32 * 0.00001 * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
-                        + top_err * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
-                        + CART_VEL.load(Ordering::Relaxed) as f32 * 0.00001 * f32::from_be_bytes(K[3].load(Ordering::Relaxed).to_be_bytes())
-                        + VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[4].load(Ordering::Relaxed).to_be_bytes()))
-                    ) as i32, Ordering::Relaxed); //calibrated values for 0, -1, 1
-                }
+                let top_err = - ((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32 + 13.5 * (1.0 + (((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes());
+                let end_err =   ((e - 2206) as f32 +  3.5 * (1.0 + (((e - 2206) as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
+                CART_ACC.store((-10000.0*
+                    (CART_POS.load(Ordering::Relaxed) as f32 * 0.0001 - f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes()) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
+                    + top_err * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
+                    + end_err * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
+                    + CART_VEL.load(Ordering::Relaxed) as f32 * 0.0001 * f32::from_be_bytes(K[3].load(Ordering::Relaxed).to_be_bytes())
+                    + VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[4].load(Ordering::Relaxed).to_be_bytes()) * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32
+                    + VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[5].load(Ordering::Relaxed).to_be_bytes()) * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32)
+                ) as i32, Ordering::Relaxed); //calibrated values for 0, -1, 1
             },
             // 2 => { //pleb
             //     CUR_POWER.store(pleb_fn(timer
@@ -427,11 +421,15 @@ unsafe fn USBCTRL_IRQ() {
             match serial.read(&mut buf) {
                 Ok(1) => {
                     if buf[0] == 9 {
-                        TOP_OFFSET.store(TOP.load(Ordering::Relaxed), Ordering::Relaxed);
-                        END_OFFSET.store(END.load(Ordering::Relaxed), Ordering::Relaxed);
-                        
+
                         TOP_ROTS.store(0, Ordering::Relaxed);
                         END_ROTS.store(0, Ordering::Relaxed);
+
+                        TOP_OFFSET.store(TOP.load(Ordering::Relaxed)%4096,  Ordering::Relaxed);
+                        END_OFFSET.store(END.load(Ordering::Relaxed)%4096, Ordering::Relaxed);
+                        
+
+                        let _ = serial.write(b"All counts set to zero.\n");
                     }
                 },
                 Ok(_) => {
@@ -448,10 +446,13 @@ unsafe fn USBCTRL_IRQ() {
                         10 => {
                             // *GET_STATUS_FLAG.as_mut().unwrap() = true;
                         },
+                        11..=14 => {
+                            SP[(buf[0] as usize-11)].store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed)
+                        },
                         _ => {},
                     }
                     //def fix_ang(x): return x+76 + 0.5*(cos(2*pi*(x+76)/4096)+1)*27
-                    let angle = (TOP.load(Ordering::Relaxed) + 76);
+                    let angle = (TOP.load(Ordering::Relaxed) + TOP_OFFSET.load(Ordering::Relaxed));
                     let final_angle = (angle as f32 + 13.5*(1.0+(PI*(angle as f32)/2048.0).cos())) * RADS_PER_TICK;
                     let angle2 = (END.load(Ordering::Relaxed) - 2206);
                     let final_angle2 = (angle2 as f32 + 3.5*(1.0+(PI*(angle2 as f32)/2048.0).cos())) * RADS_PER_TICK;
@@ -463,8 +464,8 @@ unsafe fn USBCTRL_IRQ() {
                         -final_angle, 
                         final_angle2,
                         CART_VEL.load(Ordering::Relaxed) as f32 / 10000.0,
-                        VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0, 
-                        VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * 20.0,
+                        VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32, 
+                        VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32,
                         CART_ACC.load(Ordering::Relaxed) as f32 / 10000.0,
                     );
                     let _ = serial.write(message.as_bytes());
@@ -480,6 +481,7 @@ unsafe fn IO_IRQ_BANK0() {
     CART_ACC.store(0, Ordering::Relaxed);
     CART_VEL.store(0, Ordering::Relaxed);
     IN_RESET.store(true, Ordering::Relaxed);
+    
     // USB_SERIAL.as_mut().unwrap().write(b"Limit Switch Triggered! Waiting for reset command.\n").unwrap();
     match RESET_PIN.as_mut() {
         Some(reset_pin) => {reset_pin.clear_interrupt(hal::gpio::Interrupt::EdgeHigh)},
@@ -490,16 +492,16 @@ unsafe fn IO_IRQ_BANK0() {
 #[interrupt]
 unsafe fn TIMER_IRQ_0() {
     let alarm0 = ALARM.as_mut().unwrap();
-    let _ = alarm0.schedule(10_000.micros());
+    let _ = alarm0.schedule(STEPPER_VELOCITY_UPDATE_TIME.micros());
     let c = IRQ_COUNTER.load(Ordering::Relaxed);
     if c >= 4 {
         IRQ_COUNTER.store(0, Ordering::Relaxed);
-        let angle = (TOP.load(Ordering::Relaxed) + 76);
+        let angle = (TOP.load(Ordering::Relaxed) + TOP_OFFSET.load(Ordering::Relaxed));
         let final_angle = (angle as f32 + 13.5*(1.0+((angle as f32)*RADS_PER_TICK).cos())) as i32;
         let angle2 = (END.load(Ordering::Relaxed) - 2206);
         let final_angle2 = (angle2 as f32 + 3.5*(1.0+((angle2 as f32)*RADS_PER_TICK).cos())) as i32;
 
-        let vt = (OLD_VT.load(Ordering::Relaxed) + 76);
+        let vt = (OLD_VT.load(Ordering::Relaxed) + TOP_OFFSET.load(Ordering::Relaxed));
         let final_vt = (vt as f32 + 13.5*(1.0+((vt as f32)*RADS_PER_TICK).cos())) as i32;
         let ve = (OLD_VE.load(Ordering::Relaxed) - 2206);
         let final_ve = (ve as f32 +  3.5*(1.0+((ve as f32)*RADS_PER_TICK).cos())) as i32;
@@ -523,10 +525,10 @@ unsafe fn TIMER_IRQ_0() {
     CART_POS.store(CART_POS.load(Ordering::Relaxed) + cart_vel/100, Ordering::Relaxed);
 
     // impose limits on acceleration and velocity
-    if acc > MAX_ACCELERATION { acc = MAX_ACCELERATION; }
-    else if acc < -MAX_ACCELERATION { acc = -MAX_ACCELERATION; }
-    if cart_vel > MAX_SPEED { cart_vel = MAX_SPEED; }
-    else if cart_vel < -MAX_SPEED { cart_vel = -MAX_SPEED; }
+    if acc > MAX_ACCELERATION*10 { acc = MAX_ACCELERATION*10; }
+    else if acc < (-MAX_ACCELERATION*10) { acc = -MAX_ACCELERATION*10; }
+    if cart_vel > MAX_SPEED*10 { cart_vel = MAX_SPEED*10; }
+    else if cart_vel < (-MAX_SPEED*10) { cart_vel = -MAX_SPEED*10; }
     
     CART_VEL.store(cart_vel + acc/100, Ordering::Relaxed); //0.1 mm/s^2, /20 bc time step is 50 ms
     let (dir, step) = cart_vel.get_period().unwrap_or((PinState::Low, u32::MAX));
