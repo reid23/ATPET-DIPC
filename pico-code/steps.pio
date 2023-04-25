@@ -3,9 +3,9 @@
 
 .program simple
 .wrap_target
-mov x, osr
+mov x, osr ; reset x to full period
 loop:
     jmp x-- loop ; wait for correct amt of time
-    set pins 1 [7]
-    set pins 0 [5]
+set pins 1 [7] ; set pin high
+set pins 0 [5] ; set pin low, less time bc cope
 .wrap
