@@ -96,19 +96,3 @@ if __name__ == '__main__':
     # %%
 #[ 1.41713816,  3.48891797, -1.69523664,  1.60384412][0.217, 0.125, 0.05, 0.005]
 # exit()
-# plt.plot(data[:450, 0], data[:450, 1], label='x')
-# plt.plot(data[:450, 0], data[:450, 2], label='theta')
-# plt.plot(data[:450, 0], data[:450, 3], label='x dot')
-# plt.plot(data[:450, 0], data[:450, 4], label='theta dot')
-# plt.plot(data[:450, 0], data[:450, 5], label='u')
-
-# soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(y, data[np.searchsorted(data[:, 0], t), -1], *(best_consts), 10, 10).flatten(), 
-#                                     y0=data[0, 1:5], 
-#                                     t_span=(0, 5), 
-#                                     t_eval=data[4:430, 0])
-# plt.plot(soln.t, soln.y.T[:, 0], linestyle='dashed', label='x')
-# plt.plot(soln.t, soln.y.T[:, 1], linestyle='dashed', label='theta')
-# plt.plot(soln.t, soln.y.T[:, 2], linestyle='dashed', label='x dot')
-# plt.plot(soln.t, soln.y.T[:, 3], linestyle='dashed', label='theta dot')
-# plt.legend()
-# plt.show()
