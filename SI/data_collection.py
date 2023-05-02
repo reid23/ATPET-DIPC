@@ -65,7 +65,7 @@ class Pendulum:
                 pass
             if not file is None: 
                 # print(self.y)
-                print(*([perf_counter_ns()-self.start, round(self.pwr, 3)]+list(map(lambda x: np.format_float_positional(x, precision=5, trim='k'), self.y))), sep = '\t', end=',\n', file = file)
+                print(*([perf_counter_ns()-self.start, round(self.pwr, 3)]+list(map(lambda x: np.format_float_positional(x, precision=5, trim='k'), self.y))), sep = ',', end='],\n[', file = file)
     def set(self, power):
         """sets power to given value, accounting for deadband
 
