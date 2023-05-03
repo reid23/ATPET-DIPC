@@ -4,7 +4,7 @@ from SI.sim import single_pendulum_model_stepper
 import numpy as np
 import sympy as sp
 
-
+# up
 Q = np.diag([500, 100, 40, 100])
 R = np.diag([10])
 
@@ -17,8 +17,8 @@ eigs = np.array([
 sp = [0, sp.pi, 0]
 
 # down
-Q = np.diag([10000, 70, 1, 700])
-R = np.diag([50])
+# Q = np.diag([10000, 70, 1, 700])
+# R = np.diag([50])
 
 model = (single_pendulum_model_stepper.dipc_model()
     .set_constants([0.225, 0.126, 0.13, 0.0027, 10, 10])#[0.24, 0.11, 0.1, 0.001, 10, 10])

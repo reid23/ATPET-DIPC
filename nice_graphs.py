@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.fft import fft, fftfreq
+from scipy.interpolate import interp1d
 
 # mpc
 # with open('final_data_for_plotting_mpc.txt') as f:
@@ -13,6 +15,24 @@ with open('LQR_demo_data_up.txt') as f:
 t = data[:, 0]/1_000_000_000
 x, th, dx, dth, u = data[:, (2,3,5,6,7)].T
 
+# print(fft(x))
+# print(fft(th))
+# print(fft(dx))
+# print(fft(dth))
+N=1032
+T=1/50
+xvar=np.linspace(0, N*T, N, endpoint=False)
+interp = interp1d(t, dth, kind='nearest', fill_value='extrapolate')
+print(interp(xvar).shape)
+plt.plot(xvar, interp(xvar))
+plt.show()
+
+yf = fft(interp(xvar))
+xf = fftfreq(N, T)
+
+plt.plot(xf[:N//2], (2/N)*np.abs(yf)[:N//2])
+plt.show()
+exit()
 fig, ax = plt.subplots(3, 1, sharex=True)
 
 ax[0].set_title('Cart Position and Velocity')
