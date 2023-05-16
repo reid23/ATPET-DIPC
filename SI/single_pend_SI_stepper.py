@@ -14,8 +14,12 @@ def func(y0, y1, dy0, dy1, f, l, ma, mb, I):
         dy0,
         dy1,
         f,
-        l*mb*(-9.8*(I + l**2*mb)*(ma + mb)*sin(y1) - (1.0*I*ma*f + 1.0*I*mb*f + 1.0*l**2*ma*mb*f + 1.0*l**2*mb**2*f*sin(y1)**2 - 4.9*l**2*mb**2*sin(2.0*y1))*cos(y1))/((I + l**2*mb)*(-l**2*mb**2*cos(y1)**2 + (I + l**2*mb)*(ma + mb))) 
+        (-9.8*l*m_b*sin(y1) - l*m_b*(l*m_b*dy1**2*sin(y1) + (-I*l*m_b*dy1**2*sin(y1) + I*m_a*f + I*m_b*f - l**3*m_b**2*dy1**2*sin(y1) + l**2*m_a*m_b*f - l**2*m_b**2*f*cos(y1)**2 + l**2*m_b**2*f - 4.9*l**2*m_b**2*sin(2.0*y1))/(I + l**2*m_b))*cos(y1)/(m_a + m_b))/(I - l**2*m_b**2*cos(y1)**2/(m_a + m_b) + l**2*m_b)
+
+        # l*mb*(-9.8*(I + l**2*mb)*(ma + mb)*sin(y1) - (1.0*I*ma*f + 1.0*I*mb*f + 1.0*l**2*ma*mb*f + 1.0*l**2*mb**2*f*sin(y1)**2 - 4.9*l**2*mb**2*sin(2.0*y1))*cos(y1))/((I + l**2*mb)*(-l**2*mb**2*cos(y1)**2 + (I + l**2*mb)*(ma + mb))) 
     ])
+
+(-9.8*l*m_b*sin(y1) - l*m_b*(l*m_b*dy1**2*sin(y1) + (-I*l*m_b*dy1**2*sin(y1) + I*m_a*f + I*m_b*f - l**3*m_b**2*dy1**2*sin(y1) + l**2*m_a*m_b*f - l**2*m_b**2*f*cos(y1)**2 + l**2*m_b**2*f - 4.9*l**2*m_b**2*sin(2.0*y1))/(I + l**2*m_b))*cos(y1)/(m_a + m_b))/(I - l**2*m_b**2*cos(y1)**2/(m_a + m_b) + l**2*m_b)
 #%%
 def stepper_cost(data, constants):
     # print('stepper_cost', data.shape)
@@ -30,7 +34,7 @@ def stepper_cost(data, constants):
     # print('result shape:', (soln.y.T - data[:, 1:5]).shape)
     print('sim:', soln.y.T.shape)
     print('irl:', data.shape)
-    return np.sum((soln.y.T[:, 1] - data[:, 2])**2)
+    return np.sum((soln.y.T[:, (1,3)] - data[:, (2,4)])**2)
 best_cost = np.Inf
 best_consts = []
 gen_best_cost = np.Inf
@@ -95,6 +99,7 @@ def on_gen(ga_instance):
 if __name__ == '__main__':
     freeze_support()
     wandb.init(project='ATPET-DIPC')
+    scipy.optimize.minimize()
 
     with open('double_pend_mpc_data_3.txt', 'r') as f:
         data = np.array(eval(f.read()))
