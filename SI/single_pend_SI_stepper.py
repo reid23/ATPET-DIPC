@@ -98,7 +98,6 @@ def on_gen(ga_instance):
 if __name__ == '__main__':
     freeze_support()
     wandb.init(project='ATPET-DIPC')
-    scipy.optimize.minimize()
 
     with open('double_pend_mpc_data_3.txt', 'r') as f:
         data = np.array(eval(f.read()))
