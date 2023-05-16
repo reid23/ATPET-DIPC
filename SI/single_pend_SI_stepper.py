@@ -59,10 +59,10 @@ def on_gen(ga_instance):
     plt.plot(data[:450, 0], data[:450, 4], label='theta dot')
     plt.plot(data[:450, 0], data[:450, 5], label='u')
 
-    soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(y, data[np.searchsorted(data[:, 0], t), -1], *(best_consts), 10, 10).flatten(), 
+    soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(y, data[np.searchsorted(data[:, 0], t), -1], *(best_consts)).flatten(), 
                                         y0=data[0, 1:5], 
-                                        t_span=(0, 5), 
-                                        t_eval=data[4:430, 0])
+                                        t_span=(0, 7), 
+                                        t_eval=data[:450, 0])
     plt.plot(soln.t, soln.y.T[:, 0], linestyle='dashed', label='x')
     plt.plot(soln.t, soln.y.T[:, 1], linestyle='dashed', label='theta')
     plt.plot(soln.t, soln.y.T[:, 2], linestyle='dashed', label='x dot')
@@ -78,7 +78,7 @@ def on_gen(ga_instance):
         'I': I, 
         'graph': plt,
     })
-    
+
     print("Generation", ga_instance.generations_completed)
     gen_best_cost = np.Inf
     gen_best_consts = []
