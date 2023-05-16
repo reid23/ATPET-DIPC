@@ -110,6 +110,38 @@ if __name__ == '__main__':
     print(data[-10:])
     print('here')
     with Pool(64) as p:
+        def cb(x, *args):
+            plt.clf()
+            plt.plot(data[:450, 0], data[:450, 1], label='x')
+            plt.plot(data[:450, 0], data[:450, 2], label='theta')
+            # plt.plot(data[:450, 0], data[:450, 3], label='x dot')
+            # plt.plot(data[:450, 0], data[:450, 4], label='theta dot')
+            plt.plot(data[:450, 0], data[:450, 5], label='u')
+
+            soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(*y, data[np.searchsorted(data[:, 0], t), -1], *(x)).flatten(), 
+                                                y0=data[0, 1:5], 
+                                                t_span=(0, data[451, 0]), 
+                                                t_eval=data[:450, 0])
+            plt.plot(soln.t, soln.y.T[:, 0], linestyle='dashed', label='x (pred)')
+            plt.plot(soln.t, soln.y.T[:, 1], linestyle='dashed', label='theta (pred)')
+            # plt.plot(soln.t, soln.y.T[:, 2], linestyle='dashed', label='x dot')
+            # plt.plot(soln.t, soln.y.T[:, 3], linestyle='dashed', label='theta dot')
+            plt.legend()
+
+            l, ma, mb, I, c = x
+            wandb.log({
+                'cost': cost(data, x, p), 
+                'l': l, 
+                'ma': ma, 
+                'mb': mb, 
+                'I': I, 
+                'c': c,
+                'graph': plt,
+            })
+            
+            plt.cla()
+            plt.clf()
+
         def fitness_func(a, consts, b):
             #print('here')
             res = -cost(data, consts, p)
@@ -150,8 +182,9 @@ if __name__ == '__main__':
                             mutation_percent_genes=mutation_percent_genes,
                             on_generation=on_gen)
 
-        print(ga_instance.run())
-        print(ga_instance.best_solution())
+        print(scipy.optimize.minimize(lambda x: cost(data, x, p), np.array([20,20,20,20,20]), callback=cb))
+        # print(ga_instance.run())
+        # print(ga_instance.best_solution())
         wandb.finish()
 
     # exit()
