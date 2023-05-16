@@ -9,12 +9,12 @@ import pygad
 from numpy import sin, cos
 import wandb
 
-def func(y0, y1, dy0, dy1, f, l, ma, mb, I):
+def func(y0, y1, dy0, dy1, f, l, ma, mb, I, c):
     return np.array([
         dy0,
         dy1,
         f,
-        (-9.8*l*m_b*sin(y1) - l*m_b*(l*m_b*dy1**2*sin(y1) + (-I*l*m_b*dy1**2*sin(y1) + I*m_a*f + I*m_b*f - l**3*m_b**2*dy1**2*sin(y1) + l**2*m_a*m_b*f - l**2*m_b**2*f*cos(y1)**2 + l**2*m_b**2*f - 4.9*l**2*m_b**2*sin(2.0*y1))/(I + l**2*m_b))*cos(y1)/(m_a + m_b))/(I - l**2*m_b**2*cos(y1)**2/(m_a + m_b) + l**2*m_b)
+        -c*dy1 + (-9.8*l*m_b*sin(y1) - l*m_b*(l*m_b*dy1**2*sin(y1) + (-I*l*m_b*dy1**2*sin(y1) + I*m_a*f + I*m_b*f - l**3*m_b**2*dy1**2*sin(y1) + l**2*m_a*m_b*f - l**2*m_b**2*f*cos(y1)**2 + l**2*m_b**2*f - 4.9*l**2*m_b**2*sin(2.0*y1))/(I + l**2*m_b))*cos(y1)/(m_a + m_b))/(I - l**2*m_b**2*cos(y1)**2/(m_a + m_b) + l**2*m_b)
 
         # l*mb*(-9.8*(I + l**2*mb)*(ma + mb)*sin(y1) - (1.0*I*ma*f + 1.0*I*mb*f + 1.0*l**2*ma*mb*f + 1.0*l**2*mb**2*f*sin(y1)**2 - 4.9*l**2*mb**2*sin(2.0*y1))*cos(y1))/((I + l**2*mb)*(-l**2*mb**2*cos(y1)**2 + (I + l**2*mb)*(ma + mb))) 
     ])
@@ -25,7 +25,7 @@ def stepper_cost(data, constants):
     # print('stepper_cost', data.shape)
     data = np.copy(data)
     data[:, 0] -= data[0, 0]
-    soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(*y, data[np.searchsorted(data[:, 0], t), -1], *(constants*np.array([0.217, 0.125, 0.05, 0.005])/20)), 
+    soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(*y, data[np.searchsorted(data[:, 0], t), -1], *(constants*np.array([0.217, 0.125, 0.05, 0.005, 0.1])/20)), 
                                     y0=data[0, 1:5],
                                     t_span=(data[0, 0], data[-1, 0]),
                                     t_eval=data[:, 0])
@@ -44,15 +44,15 @@ def cost(data, consts, pool):
     global best_consts
     global gen_best_cost
     global gen_best_consts
-    cost = sum(pool.starmap(stepper_cost, [(data[int(start):int(start+5/0.015)], consts) for start in np.linspace(0, len(data)-330, 64, endpoint=False)]))
+    cost = sum(pool.starmap(stepper_cost, [(data[int(start):int(start+5/0.015)], consts) for start in np.linspace(0, len(data)-335, 64, endpoint=False)]))
     #print(cost, consts*np.array([0.217, 0.125, 0.05, 0.005])/20)
     if cost < best_cost:
         best_cost = cost
-        best_consts = np.array(consts)*np.array([0.217, 0.15, 0.05, 0.005])/20
+        best_consts = np.array(consts)*np.array([0.217, 0.15, 0.05, 0.005, 0.1])/20
         print(best_cost, best_consts)
     if cost < gen_best_cost:
         gen_best_cost = cost
-        gen_best_consts = np.array(consts)*np.array([0.217, 0.15, 0.05, 0.005])/20
+        gen_best_consts = np.array(consts)*np.array([0.217, 0.15, 0.05, 0.005, 0.1])/20
     return cost
 
 def on_gen(ga_instance):
@@ -117,7 +117,7 @@ if __name__ == '__main__':
             #print(consts, res)
             return res
         # def func(a, consts, b): return 10000/cost(data, consts, model.func)
-        function_inputs = np.array([1,1,1,1])
+        function_inputs = np.array([1,1,1,1,1])
         fitness_function = fitness_func
 
         num_generations = 1000
