@@ -128,7 +128,7 @@ if __name__ == '__main__':
         crossover_type = "single_point"
 
         mutation_type = "random"
-        mutation_percent_genes = 30
+        mutation_percent_genes = 50
 
         ga_instance = pygad.GA(num_generations=num_generations,
                             num_parents_mating=num_parents_mating,
