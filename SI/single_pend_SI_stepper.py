@@ -19,6 +19,8 @@ def func(y0, y1, dy0, dy1, f, l, ma, mb, I):
 #%%
 def stepper_cost(data, constants):
     # print('stepper_cost', data.shape)
+    data = np.copy(data)
+    data[:, 0] -= data[0, 0]
     soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(*y, data[np.searchsorted(data[:, 0], t), -1], *(constants*np.array([0.217, 0.125, 0.05, 0.005])/20)), 
                                     y0=data[0, 1:5],
                                     t_span=(data[0, 0], data[-1, 0]),
@@ -38,7 +40,7 @@ def cost(data, consts, pool):
     global best_consts
     global gen_best_cost
     global gen_best_consts
-    cost = sum(pool.starmap(stepper_cost, [(data[int(start):int(start+5/0.015)], consts) for start in np.linspace(0, len(data), 64, endpoint=False)]))
+    cost = sum(pool.starmap(stepper_cost, [(data[int(start):int(start+5/0.015)], consts) for start in np.linspace(0, len(data)-330, 64, endpoint=False)]))
     #print(cost, consts*np.array([0.217, 0.125, 0.05, 0.005])/20)
     if cost < best_cost:
         best_cost = cost
