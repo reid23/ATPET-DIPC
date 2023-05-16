@@ -38,7 +38,7 @@ def cost(data, consts, pool):
     global best_consts
     global gen_best_cost
     global gen_best_consts
-    cost = sum(pool.starmap(stepper_cost, [(data[int(start):int(start+3/0.015)], consts) for start in np.linspace(0, len(data), 64, endpoint=False)]))
+    cost = sum(pool.starmap(stepper_cost, [(data[int(start):int(start+5/0.015)], consts) for start in np.linspace(0, len(data), 64, endpoint=False)]))
     #print(cost, consts*np.array([0.217, 0.125, 0.05, 0.005])/20)
     if cost < best_cost:
         best_cost = cost
