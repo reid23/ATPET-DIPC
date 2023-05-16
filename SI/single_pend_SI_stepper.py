@@ -66,7 +66,7 @@ def on_gen(ga_instance):
     # plt.plot(data[:450, 0], data[:450, 4], label='theta dot')
     plt.plot(data[:450, 0], data[:450, 5], label='u')
 
-    soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(*y, data[np.searchsorted(data[:, 0], t), -1], *(best_consts)).flatten(), 
+    soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(*y, data[np.searchsorted(data[:, 0], t), -1], *(gen_best_consts)).flatten(), 
                                         y0=data[0, 1:5], 
                                         t_span=(0, data[451, 0]), 
                                         t_eval=data[:450, 0])
