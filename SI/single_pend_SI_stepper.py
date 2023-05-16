@@ -14,12 +14,11 @@ def func(y0, y1, dy0, dy1, f, l, ma, mb, I, c):
         dy0,
         dy1,
         f,
-        -c*dy1 + (-9.8*l*m_b*sin(y1) - l*m_b*(l*m_b*dy1**2*sin(y1) + (-I*l*m_b*dy1**2*sin(y1) + I*m_a*f + I*m_b*f - l**3*m_b**2*dy1**2*sin(y1) + l**2*m_a*m_b*f - l**2*m_b**2*f*cos(y1)**2 + l**2*m_b**2*f - 4.9*l**2*m_b**2*sin(2.0*y1))/(I + l**2*m_b))*cos(y1)/(m_a + m_b))/(I - l**2*m_b**2*cos(y1)**2/(m_a + m_b) + l**2*m_b)
+        -c*dy1 + (-9.8*l*mb*sin(y1) - l*mb*(l*mb*dy1**2*sin(y1) + (-I*l*mb*dy1**2*sin(y1) + I*ma*f + I*mb*f - l**3*mb**2*dy1**2*sin(y1) + l**2*ma*mb*f - l**2*mb**2*f*cos(y1)**2 + l**2*mb**2*f - 4.9*l**2*mb**2*sin(2.0*y1))/(I + l**2*mb))*cos(y1)/(ma + mb))/(I - l**2*mb**2*cos(y1)**2/(ma + mb) + l**2*mb)
 
         # l*mb*(-9.8*(I + l**2*mb)*(ma + mb)*sin(y1) - (1.0*I*ma*f + 1.0*I*mb*f + 1.0*l**2*ma*mb*f + 1.0*l**2*mb**2*f*sin(y1)**2 - 4.9*l**2*mb**2*sin(2.0*y1))*cos(y1))/((I + l**2*mb)*(-l**2*mb**2*cos(y1)**2 + (I + l**2*mb)*(ma + mb))) 
     ])
 
-(-9.8*l*m_b*sin(y1) - l*m_b*(l*m_b*dy1**2*sin(y1) + (-I*l*m_b*dy1**2*sin(y1) + I*m_a*f + I*m_b*f - l**3*m_b**2*dy1**2*sin(y1) + l**2*m_a*m_b*f - l**2*m_b**2*f*cos(y1)**2 + l**2*m_b**2*f - 4.9*l**2*m_b**2*sin(2.0*y1))/(I + l**2*m_b))*cos(y1)/(m_a + m_b))/(I - l**2*m_b**2*cos(y1)**2/(m_a + m_b) + l**2*m_b)
 #%%
 def stepper_cost(data, constants):
     # print('stepper_cost', data.shape)
