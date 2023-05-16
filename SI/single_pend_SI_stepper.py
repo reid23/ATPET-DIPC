@@ -48,8 +48,42 @@ def cost(data, consts, pool):
     return cost
 
 def on_gen(ga_instance):
-    wandb.log({'cost': gen_best_cost, 'params': gen_best_consts})
+    global gen_best_cost
+    global gen_best_consts
+    
+    plt.clf()
+
+    plt.plot(data[:450, 0], data[:450, 1], label='x')
+    plt.plot(data[:450, 0], data[:450, 2], label='theta')
+    plt.plot(data[:450, 0], data[:450, 3], label='x dot')
+    plt.plot(data[:450, 0], data[:450, 4], label='theta dot')
+    plt.plot(data[:450, 0], data[:450, 5], label='u')
+
+    soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(y, data[np.searchsorted(data[:, 0], t), -1], *(best_consts), 10, 10).flatten(), 
+                                        y0=data[0, 1:5], 
+                                        t_span=(0, 5), 
+                                        t_eval=data[4:430, 0])
+    plt.plot(soln.t, soln.y.T[:, 0], linestyle='dashed', label='x')
+    plt.plot(soln.t, soln.y.T[:, 1], linestyle='dashed', label='theta')
+    plt.plot(soln.t, soln.y.T[:, 2], linestyle='dashed', label='x dot')
+    plt.plot(soln.t, soln.y.T[:, 3], linestyle='dashed', label='theta dot')
+    plt.legend()
+
+    l, ma, mb, I = gen_best_consts
+    wandb.log({
+        'cost': gen_best_cost, 
+        'l': l, 
+        'ma': ma, 
+        'mb': mb, 
+        'I': I, 
+        'graph': plt,
+    })
+    
     print("Generation", ga_instance.generations_completed)
+    gen_best_cost = np.Inf
+    gen_best_consts = []
+    plt.cla()
+    plt.clf()
     # best_soln = ga_instance.best_solution()
     # print("Best Solution:", np.array(best_soln[0])*np.array([0.217, 0.125, 0.05, 0.005])/20)
     # print("Best Solution Cost:", best_soln[1])
