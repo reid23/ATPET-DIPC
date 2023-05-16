@@ -141,6 +141,7 @@ if __name__ == '__main__':
             
             plt.cla()
             plt.clf()
+            return False
 
         def fitness_func(a, consts, b):
             #print('here')
