@@ -31,8 +31,8 @@ def stepper_cost(data, constants):
     # print(istart, iend, soln)
     # print('start shapes:', soln.y.T.shape, data[:, 1:5].shape)
     # print('result shape:', (soln.y.T - data[:, 1:5]).shape)
-    print('sim:', soln.y.T.shape)
-    print('irl:', data.shape)
+    # print('sim:', soln.y.T.shape)
+    # print('irl:', data.shape)
     return np.sum((soln.y.T[:, (1,3)] - data[:, (2,4)])**2)
 best_cost = np.Inf
 best_consts = []
@@ -76,13 +76,14 @@ def on_gen(ga_instance):
     # plt.plot(soln.t, soln.y.T[:, 3], linestyle='dashed', label='theta dot')
     plt.legend()
 
-    l, ma, mb, I = gen_best_consts
+    l, ma, mb, I, c = gen_best_consts
     wandb.log({
         'cost': gen_best_cost, 
         'l': l, 
         'ma': ma, 
         'mb': mb, 
         'I': I, 
+        'c': c,
         'graph': plt,
     })
 
