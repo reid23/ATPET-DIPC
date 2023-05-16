@@ -26,6 +26,8 @@ def stepper_cost(data, constants):
     # print(istart, iend, soln)
     # print('start shapes:', soln.y.T.shape, data[:, 1:5].shape)
     # print('result shape:', (soln.y.T - data[:, 1:5]).shape)
+    print('sim:', soln.y.T.shape)
+    print('irl:', data.shape)
     return np.sum((soln.y.T[:, 1] - data[:, 2])**2)
 best_cost = np.Inf
 best_consts = []
@@ -55,18 +57,18 @@ def on_gen(ga_instance):
 
     plt.plot(data[:450, 0], data[:450, 1], label='x')
     plt.plot(data[:450, 0], data[:450, 2], label='theta')
-    plt.plot(data[:450, 0], data[:450, 3], label='x dot')
-    plt.plot(data[:450, 0], data[:450, 4], label='theta dot')
+    # plt.plot(data[:450, 0], data[:450, 3], label='x dot')
+    # plt.plot(data[:450, 0], data[:450, 4], label='theta dot')
     plt.plot(data[:450, 0], data[:450, 5], label='u')
 
-    soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(y, data[np.searchsorted(data[:, 0], t), -1], *(best_consts)).flatten(), 
+    soln = scipy.integrate.solve_ivp(fun = lambda t, y: func(*y, data[np.searchsorted(data[:, 0], t), -1], *(best_consts)).flatten(), 
                                         y0=data[0, 1:5], 
-                                        t_span=(0, 7), 
+                                        t_span=(0, data[451, 0]), 
                                         t_eval=data[:450, 0])
-    plt.plot(soln.t, soln.y.T[:, 0], linestyle='dashed', label='x')
-    plt.plot(soln.t, soln.y.T[:, 1], linestyle='dashed', label='theta')
-    plt.plot(soln.t, soln.y.T[:, 2], linestyle='dashed', label='x dot')
-    plt.plot(soln.t, soln.y.T[:, 3], linestyle='dashed', label='theta dot')
+    plt.plot(soln.t, soln.y.T[:, 0], linestyle='dashed', label='x (pred)')
+    plt.plot(soln.t, soln.y.T[:, 1], linestyle='dashed', label='theta (pred)')
+    # plt.plot(soln.t, soln.y.T[:, 2], linestyle='dashed', label='x dot')
+    # plt.plot(soln.t, soln.y.T[:, 3], linestyle='dashed', label='theta dot')
     plt.legend()
 
     l, ma, mb, I = gen_best_consts
