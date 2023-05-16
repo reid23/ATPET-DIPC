@@ -7,6 +7,7 @@ import scipy
 from time import perf_counter
 import pygad
 from numpy import sin, cos
+import wandb
 
 def func(y0, y1, dy0, dy1, f, l, ma, mb, I):
     return np.array([
@@ -28,18 +29,26 @@ def stepper_cost(data, constants):
     return np.sum((soln.y.T[:, 1] - data[:, 2])**2)
 best_cost = np.Inf
 best_consts = []
+gen_best_cost = np.Inf
+gen_best_consts = []
 def cost(data, consts, pool):
     global best_cost
     global best_consts
+    global gen_best_cost
+    global gen_best_consts
     cost = sum(pool.starmap(stepper_cost, [(data[int(start):int(start+3/0.015)], consts) for start in np.linspace(0, len(data), 64, endpoint=False)]))
     #print(cost, consts*np.array([0.217, 0.125, 0.05, 0.005])/20)
     if cost < best_cost:
         best_cost = cost
         best_consts = np.array(consts)*np.array([0.217, 0.15, 0.05, 0.005])/20
         print(best_cost, best_consts)
+    if cost < gen_best_cost:
+        gen_best_cost = cost
+        gen_best_consts = np.array(consts)*np.array([0.217, 0.15, 0.05, 0.005])/20
     return cost
 
 def on_gen(ga_instance):
+    wandb.log({'cost': gen_best_cost, 'params': gen_best_consts})
     print("Generation", ga_instance.generations_completed)
     # best_soln = ga_instance.best_solution()
     # print("Best Solution:", np.array(best_soln[0])*np.array([0.217, 0.125, 0.05, 0.005])/20)
@@ -47,6 +56,7 @@ def on_gen(ga_instance):
 
 if __name__ == '__main__':
     freeze_support()
+    wandb.init(project='ATPET-DIPC')
 
     with open('double_pend_mpc_data_3.txt', 'r') as f:
         data = np.array(eval(f.read()))
@@ -100,6 +110,7 @@ if __name__ == '__main__':
 
         print(ga_instance.run())
         print(ga_instance.best_solution())
+        wandb.finish()
 
     # exit()
     # try:
