@@ -114,9 +114,9 @@ if __name__ == '__main__':
         fitness_function = fitness_func
 
         num_generations = 1000
-        num_parents_mating = 20
+        num_parents_mating = 40
 
-        sol_per_pop = 50
+        sol_per_pop = 100
         num_genes = len(function_inputs)
 
         init_range_low = 15
