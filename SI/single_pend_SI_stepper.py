@@ -102,7 +102,7 @@ if __name__ == '__main__':
     freeze_support()
     wandb.init(project='ATPET-DIPC')
 
-    with open('double_pend_mpc_data_3.txt', 'r') as f:
+    with open('final_data_for_plotting.txt', 'r') as f:
         data = np.array(eval(f.read()))
 
     data = data[10:-10, (0, 1, 2, 4, 5, 7)]
