@@ -59,7 +59,7 @@ store_results = False
 mpc, simulator, model = get_mpc()
 estimator = do_mpc.estimator.StateFeedback(model)
 
-x0 = np.array([0.1,0,0,0])
+x0 = np.array([[0.1],[0],[0],[0]])
 mpc.x0 = x0
 simulator.x0
 estimator.x0 = x0
@@ -143,16 +143,18 @@ fig.tight_layout()
 """
 Run MPC main loop:
 """
+from SI.single_pend_SI_stepper import func
 time_list = []
 
 n_steps = int(16/mpc.t_step)
-x0 = [x0]
+x0 = [x0]*2
+u0 = [[0]]
 for k in range(n_steps):
     # mpc.reset_history()
 
     tic = time.time()
     x0_to_use = x0.pop(0)
-    u0 = mpc.make_step(x0_to_use)
+    u0 = mpc.make_step(x0_to_use)# + func(*(x0_to_use[:, 0]), u0[0][0], *[0.23116035, 0.00625, 0.05, 0.0, 0.10631411])[:, np.newaxis]*0.035)
     u0 = mpc.data.prediction(('_u', 'f'))[0][0][:, np.newaxis]
     print(f"{mpc.data.prediction(('_u', 'f'))[0,0,0]},")
     toc = time.time()

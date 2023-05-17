@@ -31,6 +31,7 @@ def get_mpc():
     # )
     l, ma, mb, I = [0.24777857, 0.12615081, 0.06319876, 0.0036074 ]
     l, ma, mb, I = [0.24777857, 0.12615081, 0.075, 0.0015 ]
+    l, ma, mb, I, c = [0.23116035, 0.00625   , 0.05      , 0.        , 0.10631411]
     # l, ma, mb, I = [0.247, 0.126, 0.063, 0.001]
     # l, ma, mb, I = [0.257, 0.126, 0.075, 0.001] # good
     # l, ma, mb, I = [0.257, 0.126, 0.063, 0.001]
@@ -49,7 +50,10 @@ def get_mpc():
         f,
         l*mb*(-9.8*(I + l**2*mb)*(ma + mb)*sin(y1) - (1.0*I*ma*f + 1.0*I*mb*f + 1.0*l**2*ma*mb*f + 1.0*l**2*mb**2*f*sin(y1)**2 - 4.9*l**2*mb**2*sin(2.0*y1))*cos(y1))/((I + l**2*mb)*(-l**2*mb**2*cos(y1)**2 + (I + l**2*mb)*(ma + mb))) 
     )
-
+    expr = vertcat(
+        f,
+        -c*dy[1] + (-9.8*l*mb*sin(y1) - l*mb*(l*mb*dy[1]**2*sin(y1) + (-I*l*mb*dy[1]**2*sin(y1) + I*ma*f + I*mb*f - l**3*mb**2*dy[1]**2*sin(y1) + l**2*ma*mb*f - l**2*mb**2*f*cos(y1)**2 + l**2*mb**2*f - 4.9*l**2*mb**2*sin(2.0*y1))/(I + l**2*mb))*cos(y1)/(ma + mb))/(I - l**2*mb**2*cos(y1)**2/(ma + mb) + l**2*mb)
+    )
     # l=0.21
     # expr = vertcat(
     #     f,
@@ -73,8 +77,8 @@ def get_mpc():
 
     mpc = do_mpc.controller.MPC(model)
 
-    tstep = 0.1 # 0.1
-    thorizon = 1 # 1
+    tstep = 0.05 # 0.1
+    thorizon = 5 # 1
     nhorizon = int(thorizon/tstep)
     setup_mpc = {
         'n_horizon': nhorizon,
@@ -98,6 +102,7 @@ def get_mpc():
     # # m_term 
     # = 0*y1
     l_term = 3*model.aux['E_kin'] - 50*model.aux['E_pot'] + 20*dy[1]**2 - 20*cos(y1)*(dy[1]**2)
+    l_term = 10*model.aux['E_kin'] - 150*model.aux['E_pot'] + 10*cos(y1)*(dy[1]**2) + 100*y0**2
     m_term = l_term
     # m_term = -model.aux['E_pot']+(model.x['y_0'])**2 # stage cost
 

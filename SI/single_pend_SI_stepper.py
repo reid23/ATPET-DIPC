@@ -2,7 +2,7 @@
 from multiprocessing import Pool, freeze_support
 import numpy as np
 import matplotlib.pyplot as plt
-from sim.single_pendulum_model_stepper import dipc_model
+# from sim.single_pendulum_model_stepper import dipc_model
 import scipy
 from time import perf_counter
 import pygad
