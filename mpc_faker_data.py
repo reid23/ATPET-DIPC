@@ -10,6 +10,7 @@ import numpy as np
 from multiprocessing import Pool
 import itertools
 #%%
+mpc, _, _ = get_mpc()
 params = np.array(list(itertools.product(
     np.linspace(-0.4, 0.4, 10),
     np.linspace(-0.7, 0.7, 10),
@@ -19,11 +20,11 @@ params = np.array(list(itertools.product(
 ))).reshape(64,500000,5,1)
 
 #%%
-mpc, _, _ = get_mpc()
-
+def get_list(x):
+    return list(map(mpc.make_step, x))
 with Pool(64) as p:
     with open('results.txt', 'w') as f:
-        print(sum(p.starmap(lambda x: list(map(mpc.make_step, x)))), file=f)
+        print(sum(p.starmap(get_list, params)), file=f)
 
 
 

@@ -7,7 +7,7 @@ import sys
 from time import sleep, perf_counter
 from multiprocessing import Process, Array, Value
 #%%
-def get_mpc():
+def get_mpc(tstep=0.1, thoriz=1, compile_nlp=True):
     model = do_mpc.model.Model('continuous')
     y0 = model.set_variable('_x', 'y_0')
     y1 = model.set_variable('_x', 'y_1')
@@ -77,8 +77,8 @@ def get_mpc():
 
     mpc = do_mpc.controller.MPC(model)
 
-    tstep = 0.05 # 0.1
-    thorizon = 5 # 1
+    tstep = tstep # 0.1
+    thorizon = thoriz # 1
     nhorizon = int(thorizon/tstep)
     setup_mpc = {
         'n_horizon': nhorizon,
@@ -169,7 +169,8 @@ def get_mpc():
     # mpc.x0 = x0
 
     mpc.set_initial_guess()
-    mpc.compile_nlp(overwrite = True) #set overwrite to true if things changed
+    if compile_nlp==True:
+        mpc.compile_nlp(overwrite = True) #set overwrite to true if things changed
 
     return mpc, simulator, model
 

@@ -1,32 +1,35 @@
 #%%
-from casadi import DaeBuilder, sin, cos, pi, integrator, vertcat
+from casadi import DaeBuilder, sin, cos, pi, integrator, vertcat, SX, MX
 import numpy as np
 from time import perf_counter
 from MPC_testing import get_mpc
 import sys
+#%%
+# l, ma, mb, I, c = [0.23116035, 0.00625   , 0.05      , 0.        , 0.10631411]
+p = MX.sym('p', 6)
+l, ma, mb, I, c = p[0], p[1], p[2], p[3], p[4]
+f = p[5]#MX.sym('f')
+y = MX.sym('y', 4)
 
-d = DaeBuilder()
-l = d.add_p('l')
-ma = d.add_p('ma')
-mb = d.add_p('mb')
-ke = d.add_p('ke')
-kf = d.add_p('kf')
-f = d.add_u('f')
+ydot = vertcat(
+    y[2],
+    y[3],
+    f,
+    -c*y[3] + (-9.8*l*mb*sin(y[1]) - l*mb*(l*mb*y[3]**2*sin(y[1]) + (-I*l*mb*y[3]**2*sin(y[1]) + I*ma*f + I*mb*f - l**3*mb**2*y[3]**2*sin(y[1]) + l**2*ma*mb*f - l**2*mb**2*f*cos(y[1])**2 + l**2*mb**2*f - 4.9*l**2*mb**2*sin(2.0*y[1]))/(I + l**2*mb))*cos(y[1])/(ma + mb))/(I - l**2*mb**2*cos(y[1])**2/(ma + mb) + l**2*mb)
+)
 
-y = [d.add_x('x'), d.add_x('theta')]
-dy = [d.add_x('dx'), d.add_x('dtheta')]
+ode = {'x':y, 'p': p, 'ode': ydot}
+def eval_ode(t_step, t_f, x0=np.array([0,np.pi/2,0,0]), p=np.array([0.23116035, 0.00625   , 0.05      , 0.        , 0.10631411, 0])):
+    int_func = integrator('F_i', 'cvodes', ode, dict(t0=0, tf=t_step))
+    x0 = np.array([0,np.pi/2,0,0])
+    p=np.array([0.23116035, 0.00625   , 0.05      , 0.        , 0.10631411, 0])
+    res = []
+    for i in range(int(t_f/t_step)):
+        x0 = int_func(x0=x0, p=p)['xf']
+        res.append(x0)
+    return np.array(res)
 
-ydot = [dy[0], dy[1]]
-dydot = [
-    ((296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]-((l*mb*(-9.8*l*mb*sin(y[1])-(l*mb*(296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]+l*mb*(dy[1]**2)*sin(y[1])))*cos(y[1])))/((-((l**2)*(mb**2)*(cos(y[1])**2))/(ma+mb))+(l**2)*mb)) + l*mb*(dy[1]**2)*sin(y[1]))/(ma+mb)),
-    ((-9.8*l*mb*sin(y[1]))-((l*mb*(296.296296296296*pi*ke*(-ke*dy[0]+12*f)-kf*dy[0]+l*mb*(dy[1]**2)*sin(y[1])))/(ma+mb)))/((-((l**2)*(mb**2)*(cos(y[1])**2))/(ma+mb))+(l**2)*mb)
-]
-
-dydot = [
-        (-296.296296296296*pi*ke*(-ke*dy[0] + 12*f) - kf*dy[0] - l*mb*(-9.8*l*mb*sin(y[1]) - l*mb*(-296.296296296296*pi*ke*(-ke*dy[0] + 12*f) - kf*dy[0] + l*mb*dy[1]**2*sin(y[1]))*cos(y[1])/(ma + mb))*cos(y[1])/(-l**2*mb**2*cos(y[1])**2/(ma + mb) + l**2*mb) + l*mb*dy[1]**2*sin(y[1]))/(ma + mb), 
-        (-9.8*l*mb*sin(y[1]) - l*mb*(-296.296296296296*pi*ke*(-ke*dy[0] + 12*f) - kf*dy[0] + l*mb*dy[1]**2*sin(y[1]))*cos(y[1])/(ma + mb))/(-l**2*mb**2*cos(y[1])**2/(ma + mb) + l**2*mb)
-]
-
+#%%
 
 # dydot = [
 #         (296.296296296296*pi*ke*(-ke*-dy[0]+12*f)-kf*-dy[0]-((l*mb*(-9.8*l*mb*sin(y[1])-(l*mb*(296.296296296296*pi*ke*(-ke*-dy[0]+12*f)-kf*-dy[0]+l*mb*(dy[1]**2)*sin(y[1])))*cos(y[1])))/((-((l**2)*(mb**2)*(cos(y[1])**2))/(ma+mb))+(l**2)*mb)) + l*mb*(dy[1]**2)*sin(y[1]))/(ma+mb),
