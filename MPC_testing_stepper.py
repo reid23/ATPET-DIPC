@@ -32,6 +32,7 @@ def get_mpc(tstep=0.1, thoriz=1, compile_nlp=True):
     l, ma, mb, I = [0.24777857, 0.12615081, 0.06319876, 0.0036074 ]
     l, ma, mb, I = [0.24777857, 0.12615081, 0.075, 0.0015 ]
     l, ma, mb, I, c = [0.23116035, 0.00625   , 0.05      , 0.        , 0.10631411]
+    # l, ma, mb, I, c = [0.23116035, 0.00625, 0.05, 0.0, 0.10631411]
     # l, ma, mb, I = [0.247, 0.126, 0.063, 0.001]
     # l, ma, mb, I = [0.257, 0.126, 0.075, 0.001] # good
     # l, ma, mb, I = [0.257, 0.126, 0.063, 0.001]
@@ -103,6 +104,7 @@ def get_mpc(tstep=0.1, thoriz=1, compile_nlp=True):
     # = 0*y1
     l_term = 3*model.aux['E_kin'] - 50*model.aux['E_pot'] + 20*dy[1]**2 - 20*cos(y1)*(dy[1]**2)
     l_term = 10*model.aux['E_kin'] - 150*model.aux['E_pot'] + 10*cos(y1)*(dy[1]**2) + 100*y0**2
+    l_term = model.aux['E_kin'] - 100*model.aux['E_pot']
     m_term = l_term
     # m_term = -model.aux['E_pot']+(model.x['y_0'])**2 # stage cost
 
@@ -115,8 +117,8 @@ def get_mpc(tstep=0.1, thoriz=1, compile_nlp=True):
 
 
     # bounds on state:
-    mpc.bounds['lower','_x', 'y_0'] = -0.4
-    mpc.bounds['upper','_x', 'y_0'] = 0.4
+    mpc.bounds['lower','_x', 'y_0'] = -0.7
+    mpc.bounds['upper','_x', 'y_0'] = 0.7
 
     # mpc.bounds['lower','_x', 'y_1'] = -11
     # mpc.bounds['upper','_x', 'y_1'] = 11

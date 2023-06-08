@@ -36,6 +36,8 @@ import matplotlib.gridspec as gridspec
 from matplotlib.patches import Circle
 from matplotlib import rcParams
 from matplotlib.animation import FuncAnimation, FFMpegWriter, ImageMagickWriter
+
+
 # Plot settings
 rcParams['text.usetex'] = False
 rcParams['axes.grid'] = True
@@ -147,7 +149,7 @@ from SI.single_pend_SI_stepper import func
 time_list = []
 
 n_steps = int(16/mpc.t_step)
-x0 = [x0]*2
+x0 = [x0]
 u0 = [[0]]
 for k in range(n_steps):
     # mpc.reset_history()
