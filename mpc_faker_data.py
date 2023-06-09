@@ -7,24 +7,25 @@
 
 from MPC_testing_stepper import get_mpc
 import numpy as np
-from multiprocessing import Pool
+from multiprocessing import pool
 import itertools
 #%%
-mpc, _, _ = get_mpc()
+mpc, _, _ = get_mpc(0.05, 3, compile_nlp=False)
 params = np.array(list(itertools.product(
-    np.linspace(-0.4, 0.4, 10),
     np.linspace(-0.7, 0.7, 10),
-    np.linspace(0, 2*np.pi, 100),
-    np.linspace(-20**(1/3), 20**(1/3), 64)**3,
-    np.linspace(-1.5**(1/3), 1.5**(1/3), 50)**3,
-))).reshape(64,500000,5,1)
+    np.linspace(0, 2*np.pi, 10),
+    np.linspace(-0.7, 0.7, 10, endpoint=False),
+    np.linspace(-20**(1/3), 20**(1/3), 10)**3,
+))).reshape(8,1,1250,4)
 
 #%%
 def get_list(x):
     return list(map(mpc.make_step, x))
-with Pool(64) as p:
-    with open('results.txt', 'w') as f:
-        print(sum(p.starmap(get_list, params)), file=f)
+
+if __name__ == '__main__':
+    with pool.Pool(8) as p:
+        with open('results.txt', 'w') as f:
+            print(list(itertools.chain.from_iterable(p.starmap(get_list, params))), file=f)
 
 
 
