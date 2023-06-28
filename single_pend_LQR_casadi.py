@@ -4,6 +4,10 @@ import numpy as np
 from casadi import pi
 from time import sleep
 # up
+
+setpoint = 'down' # 'up' or 'down'
+controller = 'pole placement' # 'pp' or 'lqr'
+
 Q = np.diag([75, 85, 1, 12])
 R = np.diag([50])
 eigs = np.array([
@@ -12,21 +16,28 @@ eigs = np.array([
     [-3.1],
     [-3],
 ])
-sp = [0, np.pi-0.037, 0]
 
+if setpoint == 'up':
+    sp = [0, np.pi-0.037, 0]
+    sym_sp = [0, pi, 0, 0]
+elif setpoint == 'down':
+    eigs = eigs*2
+    sp = [0, -0.015333, 0]
+    sym_sp = [0, 0, 0, 0]
+else:
+    raise ValueError(f'setpoint must be "up" or "down", not {setpoint}')
 
-# # down
-# Q = np.diag([2, 10, 1, 7])
-# R = np.diag([4])
-# sp = [0, -0.015333, 0]
-print(Q)
-print(R)
-# LQR, eigs = get_lqr(([0, pi, 0, 0], 0), Q, R)
-LQR = get_pp(([0, pi, 0, 0], 0), eigs)
-LQR = np.array(LQR)[0]
-LQR = [LQR[0], LQR[1], 0, LQR[2], LQR[3], 0]
-print('gains: ', LQR)
-print('eigs: ', eigs)
+if controller == 'pole placement':
+    K = get_pp((sym_sp, 0), eigs)
+elif controller == 'lqr':
+    K, eigs = get_lqr((sym_sp, 0), Q, R)
+else:
+    raise ValueError(f'controller must be "pole placement" or "lqr", not {controller}')
+    
+K = np.array(K)[0]
+K = [K[0], K[1], 0, K[2], K[3], 0] #space out bc cope
+print('gains: ', K)
+print('eigs: ', eigs.flatten())
 
 if __name__ == '__main__':
     with Pendulum.Pendulum(file = '/dev/null') as p:
@@ -34,7 +45,7 @@ if __name__ == '__main__':
         p.zero_all()
         p.set(0)
         sleep(0.1)
-        p.set_K(LQR)
+        p.set_K(K)
         p.set_SP(sp)
         input('Press [enter] to start balancing.')
         p.set_mode('local')

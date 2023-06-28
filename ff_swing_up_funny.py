@@ -5,7 +5,7 @@ from time import perf_counter
 from time import sleep
 from casadi_testing import controller
 from casadi import DM, pi
-from linearizer_casadi import get_lqr
+from linearizer_casadi import get_lqr, get_pp
 import matplotlib.pyplot as plt
 
 # LQR setup
