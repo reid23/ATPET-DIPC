@@ -9,15 +9,16 @@ from linearizer_casadi import get_lqr
 import matplotlib.pyplot as plt
 
 # LQR setup
-Q = np.diag([150, 10, 50, 1000])
-R = np.diag([5])
-LQR, eigs = get_lqr(([0, pi, 0, 0], 0), Q, R)
+Q = np.diag([75, 85, 1, 12])
+R = np.diag([50])
+# LQR, eigs = get_lqr(([0, pi, 0, 0], 0), Q, R)
+LQR = get_pp(([0, pi, 0, 0], 0), eigs = np.array([[-3.3],[-3.2],[-3.1],[-3]]))
 LQR = np.array(LQR)[0]
 LQR = [LQR[0], LQR[1], 0, LQR[2], LQR[3], 0]
 print('gains: ', LQR)
 print('eigs: ', eigs)
 
-SP = [0, np.pi-0.04, 0]
+SP = [0, np.pi-0.037, 0]
 
 
 

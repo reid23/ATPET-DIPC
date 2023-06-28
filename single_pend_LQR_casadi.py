@@ -11,7 +11,7 @@ eigs = np.array([
     [-3.2],
     [-3.1],
     [-3],
-])*10
+])
 sp = [0, np.pi-0.037, 0]
 
 
@@ -21,8 +21,8 @@ sp = [0, np.pi-0.037, 0]
 # sp = [0, -0.015333, 0]
 print(Q)
 print(R)
-LQR, eigs = get_lqr(([0, pi, 0, 0], 0), Q, R)
-# LQR = get_pp(([0, pi, 0, 0], 0), eigs)
+# LQR, eigs = get_lqr(([0, pi, 0, 0], 0), Q, R)
+LQR = get_pp(([0, pi, 0, 0], 0), eigs)
 LQR = np.array(LQR)[0]
 LQR = [LQR[0], LQR[1], 0, LQR[2], LQR[3], 0]
 print('gains: ', LQR)
