@@ -43,7 +43,7 @@ with serial.Serial(port, 115200) as p:
         sleep(0.02)
         p.readline()
         p.write(bytearray([28]))
-        sleep(5)
+        input("press [enter] when homing is done: ")
         while True:
             p.write(bytearray([255, 255]))
             sleep(0.05)
@@ -51,6 +51,7 @@ with serial.Serial(port, 115200) as p:
             if len(response)>10: break
         sleep(0.5)
         p.write(bytearray([1, 0]))
+        p.write(bytearray([0])+struct.pack('>i', 0))
         for idx, i in enumerate(down_K):
             p.write(bytearray([idx+2])+struct.pack('>f', i))
             sleep(0.05)
@@ -64,16 +65,7 @@ with serial.Serial(port, 115200) as p:
         # wait until pendulum is stable in the down position
         while True:
             p.write(bytearray([255, 255]))
-            while True:
-                try:
-                    y = np.array(str(p.readline())[2:-3].split(','), dtype=float)
-                    break
-                except ValueError:
-                    print('waaa')
-                    sleep(0.2)
-            # print(y)
-
-            # print(np.remainder(np.abs(y[1]+0.015333), 2*np.pi), np.abs(y[3]), np.abs(y[4]))
+            y = np.array(str(p.readline())[2:-3].split(','), dtype=float)
             if np.remainder(np.abs(y[1]+0.015333), 2*np.pi)<0.02 and np.abs(y[3])<0.01 and np.abs(y[4])<0.0005:
                 break
         
