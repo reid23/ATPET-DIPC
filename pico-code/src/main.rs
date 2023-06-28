@@ -2,6 +2,8 @@
 #![no_std]
 #![no_main]
 
+use embedded_hal::prelude::_embedded_hal_blocking_i2c_Read;
+use embedded_hal::prelude::_embedded_hal_blocking_i2c_Write;
 use pio::MovOperation;
 use rp_pico::entry; // startup function macro
 use rp_pico::hal;
@@ -34,7 +36,7 @@ const PIO_FREQ: u32 = 5_000_000; // Hz
 const MAX_SPEED: i32 = 5000; // mm/s
 const MAX_ACCELERATION: i32 = 5000; //mm/s^2
 const STEPPER_VELOCITY_UPDATE_TIME: u32 = 10_000; // in us (5 ticks/us, so max (5*this)/19 steps, min speed 0.1/5*this mm/s)
-
+const SPEED_MULT: i32 = 100;
 
 trait GetPeriod{
     fn get_period(&self) -> Result<(PinState, u32), &'static str>;
@@ -43,9 +45,9 @@ impl GetPeriod for i32{
     // takes speed in 0.1mm/s and converts it to period for pio
     fn get_period(&self) -> Result<(PinState, u32), &'static str>{
         if self == &0 {return Ok((PinState::Low, u32::MAX))}
-        let pwr = if self > &(MAX_SPEED*10) {MAX_SPEED*10} 
-                  else if self < &-(MAX_SPEED*10) {-MAX_SPEED*10} 
-                  else {*self};
+        let pwr = if self > &(MAX_SPEED*10*SPEED_MULT) {MAX_SPEED*10} 
+                  else if self < &-(MAX_SPEED*10*SPEED_MULT) {-MAX_SPEED*10} 
+                  else {*self/SPEED_MULT};
         let dir = if self < &0 {PinState::High} else {PinState::Low};
         let delay = PIO_FREQ / pwr.abs() as u32;
         if delay < 19 {return Err("speed too high (took too much of itself lmao)");}
@@ -62,13 +64,8 @@ impl AngleWrap for f32 {
     }
 }
 
-static RAW_TOP: AtomicI32 = AtomicI32::new(0);
+// static RAW_TOP: AtomicI32 = AtomicI32::new(0);
 
-static OFFSETS: [AtomicI32; 3] = [AtomicI32::new(0),
-                                  AtomicI32::new(0),
-                                  AtomicI32::new(0)];
-
-fn cope_snesors(state: [i32; 6]) {}
 
 static mut DIR_PIN: Option<Pin<hal::gpio::bank0::Gpio6, PushPullOutput>> = None;
 static mut DELAY_TX: Option<Tx<(pac::PIO1, SM0)>> = None;
@@ -82,6 +79,13 @@ static CART_ACC: AtomicI32 = AtomicI32::new(0); // 0.1 * mm/s^2
 
 static MODE: AtomicU8 = AtomicU8::new(0);
 static IN_RESET: AtomicBool = AtomicBool::new(false);
+
+// commands
+// static GET_I2C_STATUS: AtomicBool = AtomicBool::new(false);
+// static SET_I2C_ZPOS: AtomicI32 = AtomicI32::new(-1);
+// static SET_I2C_MPOS: AtomicI32 = AtomicI32::new(-1);
+
+
 static CART_POS: AtomicI32 = AtomicI32::new(0);
 
 /// The USB Device Driver (shared with the interrupt).
@@ -123,7 +127,6 @@ static SP: [AtomicI32; 3] = [AtomicI32::new(0), //cart setpoint  (m)
                             AtomicI32::new(0)]; //end setpoint (rad)
 
 const RADS_PER_TICK: f32 = PI/2048.0;
-
 
 #[entry]
 fn main() -> ! {
@@ -280,7 +283,7 @@ fn main() -> ! {
         pac.I2C0,
         top_sda,
         top_scl,
-        100.kHz(),
+        400.kHz(),
         &mut pac.RESETS,
         &clocks.peripheral_clock,
     );
@@ -292,7 +295,7 @@ fn main() -> ! {
         pac.I2C1,
         end_sda,
         end_scl,
-        100.kHz(),
+        400.kHz(),
         &mut pac.RESETS,
         &clocks.peripheral_clock,
     );
@@ -316,11 +319,27 @@ fn main() -> ! {
         pac::NVIC::unmask(hal::pac::Interrupt::TIMER_IRQ_0);
     }
     unsafe { pac::NVIC::unmask(hal::pac::Interrupt::IO_IRQ_BANK0); }
+
     // unsafe { pac::NVIC::unmask(hal::pac::Interrupt::PIO1_IRQ_1); }
 
     // led_pin.set_low().unwrap();
     // delay.delay_ms(1000);
     // led_pin.set_high().unwrap();
+
+
+    // set filter settings
+    // let mut top = [0; 2];
+    // let mut end = [0; 2];
+
+    // top_i2c.read(0x07, &mut top);
+    // top[8] = 1;
+    // top[9] = 0;
+    // top_i2c.write(0x07, &top);
+
+    // end_i2c.read(0x07, &mut end);
+    // end[8] = 1;
+    // end[9] = 0;
+    // end_i2c.write(0x07, &end);
 
     loop {
         let mut top = [0; 2];
@@ -382,36 +401,37 @@ fn main() -> ! {
             1 => { //local
                 let top_err = - ((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32 + 13.5 * (1.0 + (((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes());
                 let end_err =   ((e - 2206) as f32 +  3.5 * (1.0 + (((e - 2206) as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
-                CART_ACC.store((-10000.0*
-                    ((CART_POS.load(Ordering::Relaxed) as f32 * 0.0001 - f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes())) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
+                CART_ACC.store(((-1000*SPEED_MULT) as f32 *
+                    ((CART_POS.load(Ordering::Relaxed) as f32 / ((SPEED_MULT*1000) as f32) - f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes())) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
                     + top_err.wrap_angle() * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
                     + end_err.wrap_angle() * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
-                    + CART_VEL.load(Ordering::Relaxed) as f32 * 0.0001 * f32::from_be_bytes(K[3].load(Ordering::Relaxed).to_be_bytes())
+                    + (CART_VEL.load(Ordering::Relaxed) as f32 / ((SPEED_MULT*1000) as f32)) * f32::from_be_bytes(K[3].load(Ordering::Relaxed).to_be_bytes())
                     + VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[4].load(Ordering::Relaxed).to_be_bytes()) * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32
                     + VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[5].load(Ordering::Relaxed).to_be_bytes()) * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32)
                 ) as i32, Ordering::Relaxed); //calibrated values for 0, -1, 1
             },
             2 => {// home
                 CART_VEL.store(0, Ordering::Relaxed); //homing speed: 200 mm/s
-                CART_ACC.store(10000, Ordering::Relaxed); //500 mm/s^2
+                CART_ACC.store(1000*SPEED_MULT, Ordering::Relaxed); //500 mm/s^2
                 delay.delay_ms(400); //get to 200 mm/s (takes 40mm)
                 CART_ACC.store(0, Ordering::Relaxed); //stop accelerating
 
                 while !IN_RESET.load(Ordering::Relaxed) {} //wait for button
                 CART_VEL.store(0, Ordering::Relaxed);
-                CART_POS.store(9000, Ordering::Relaxed); // set location
+                CART_POS.store(900*SPEED_MULT, Ordering::Relaxed); // set location
                 
-                CART_ACC.store(-10000, Ordering::Relaxed);
+                CART_ACC.store(-1000*SPEED_MULT, Ordering::Relaxed);
                 delay.delay_ms(400);
                 CART_ACC.store(0, Ordering::Relaxed); //stop accelerating
                 delay.delay_ms(1850); //move mm, because it takes 80 to accelerate and 80 to decelerate
-                CART_ACC.store(10000, Ordering::Relaxed);
+                CART_ACC.store(1000*SPEED_MULT, Ordering::Relaxed);
                 delay.delay_ms(400);
                 CART_ACC.store(0, Ordering::Relaxed);
                 CART_VEL.store(0, Ordering::Relaxed);
                 
                 IN_RESET.store(false, Ordering::Relaxed); //fix reset
                 MODE.store(0, Ordering::Relaxed);
+                
             }
             _ => {}
         }
@@ -419,11 +439,6 @@ fn main() -> ! {
 
 }
 
-/// This function is called whenever the USB Hardware generates an Interrupt
-/// Request.
-///
-/// We do all our USB work under interrupt, so the main thread can continue on
-/// knowing nothing about USB.
 #[allow(non_snake_case)]
 #[interrupt]
 unsafe fn USBCTRL_IRQ() {
@@ -435,12 +450,9 @@ unsafe fn USBCTRL_IRQ() {
 
     // Poll the USB driver with all of our supported USB Classes
     if usb_dev.poll(&mut [serial]) {
+        let mode = MODE.load(Ordering::Relaxed);
         let mut buf = [0, 0, 0, 0, 0]; //format: 1 byte command, up to 4 bytes data. Default command is set power to 0.
-        if MODE.load(Ordering::Relaxed)==2 {
-            let _ = serial.write(b"");
-            return;
-        }
-        if IN_RESET.load(Ordering::Relaxed) {
+        if IN_RESET.load(Ordering::Relaxed) && mode != 2 {
             match serial.read(&mut buf) {
                 Ok(_) => match buf[0] {
                     100 => {
@@ -460,14 +472,20 @@ unsafe fn USBCTRL_IRQ() {
                 Ok(size) => {
                     match buf[0] { //32767.5
                         0 => {
-                            if size < 5 {
-                                let _ = serial.write(b"Error: SET_ACC requires four bytes of data.\n");
+                            if mode == 2 {
+                                let _ = serial.write(b"Error: SET_ACC prohibited during homing.");
+                            } else if size < 5 {
+                                let _ = serial.write(b"Error: SET_ACC requires four bytes of data.");
+                            } else {
+                                CART_ACC.store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed);
                             }
-                            CART_ACC.store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed);
                         },
                         1 => {
-                            while MODE.load(Ordering::Relaxed) == 2 {} // wait for homing to finish, if in progress
-                            MODE.store(buf[1], Ordering::Relaxed);
+                            if mode == 2 {
+                                let _ = serial.write(b"Error: SET_MODE prohibited during homing.");
+                            } else {
+                                MODE.store(buf[1], Ordering::Relaxed);
+                            }
                         }
                         2..=8 => {
                             K[(buf[0] as usize)-2].store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed);
@@ -482,7 +500,9 @@ unsafe fn USBCTRL_IRQ() {
                             MODE.store(2, Ordering::Relaxed);
                         },
                         92 => {
-                            if size == 1 {
+                            if mode == 2 {
+                                let _ = serial.write(b"Error: SET_X prohibited during homing.");
+                            } else if size == 1 {
                                 CART_POS.store(0, Ordering::Relaxed);
                             } else if size == 4 {
                                 CART_POS.store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed);
@@ -490,10 +510,10 @@ unsafe fn USBCTRL_IRQ() {
 
                             }
                         }
-                        101 => {
+                        101 => { //e-stop, basically
                             __cortex_m_rt_IO_IRQ_BANK0();
                         }
-
+                        
                         _ => {},
                     }
                     //def fix_ang(x): return x+76 + 0.5*(cos(2*pi*(x+76)/4096)+1)*27
@@ -511,13 +531,13 @@ unsafe fn USBCTRL_IRQ() {
                     // 4247 pi
                     let mut message: String<100> = String::new();
                     let _ = write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", 
-                        CART_POS.load(Ordering::Relaxed) as f32 / 10000.0,
+                        CART_POS.load(Ordering::Relaxed) as f32 / ((1000*SPEED_MULT) as f32),
                         -final_angle, 
                         final_angle2,
-                        CART_VEL.load(Ordering::Relaxed) as f32 / 10000.0,
+                        CART_VEL.load(Ordering::Relaxed) as f32 / ((1000*SPEED_MULT) as f32),
                         VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32, 
                         VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32,
-                        CART_ACC.load(Ordering::Relaxed) as f32 / 10000.0,
+                        CART_ACC.load(Ordering::Relaxed) as f32 / ((1000*SPEED_MULT) as f32),
                     );
                     let _ = serial.write(message.as_bytes());
                 },
@@ -579,13 +599,11 @@ unsafe fn TIMER_IRQ_0() {
     let mut acc = CART_ACC.load(Ordering::Relaxed);
     CART_POS.store(CART_POS.load(Ordering::Relaxed) + cart_vel/100, Ordering::Relaxed);
 
-    // impose limits on acceleration and velocity
-    if acc > MAX_ACCELERATION*10 { acc = MAX_ACCELERATION*10; }
-    else if acc < (-MAX_ACCELERATION*10) { acc = -MAX_ACCELERATION*10; }
-    if cart_vel > MAX_SPEED*10 { cart_vel = MAX_SPEED*10; }
-    else if cart_vel < (-MAX_SPEED*10) { cart_vel = -MAX_SPEED*10; }
+    // impose limits on acceleration (velocity is handled by .get_period())
+    if acc > MAX_ACCELERATION*10*SPEED_MULT { acc = MAX_ACCELERATION*10*SPEED_MULT; }
+    else if acc < (-MAX_ACCELERATION*10*SPEED_MULT) { acc = -MAX_ACCELERATION*10*SPEED_MULT; }
     
-    CART_VEL.store(cart_vel + acc/100, Ordering::Relaxed); //0.1 mm/s^2, /20 bc time step is 50 ms
+    CART_VEL.store(cart_vel + acc/100, Ordering::Relaxed); // the /100 bc time step is 10 ms
     let (dir, step) = cart_vel.get_period().unwrap_or((PinState::Low, u32::MAX));
 
     match DIR_PIN.as_mut().unwrap().set_state(dir){

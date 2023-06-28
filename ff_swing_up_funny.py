@@ -43,6 +43,7 @@ with serial.Serial(port, 115200) as p:
         sleep(0.02)
         p.readline()
         p.write(bytearray([28]))
+        p.readline()
         input("press [enter] when homing is done: ")
         while True:
             p.write(bytearray([255, 255]))
