@@ -3,7 +3,7 @@ from SI import data_collection as Pendulum
 import numpy as np
 from casadi import pi
 from time import sleep
-# up
+
 
 setpoint = 'down' # 'up' or 'down'
 controller = 'pole placement' # 'pp' or 'lqr'

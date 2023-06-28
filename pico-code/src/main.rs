@@ -436,7 +436,10 @@ unsafe fn USBCTRL_IRQ() {
     // Poll the USB driver with all of our supported USB Classes
     if usb_dev.poll(&mut [serial]) {
         let mut buf = [0, 0, 0, 0, 0]; //format: 1 byte command, up to 4 bytes data. Default command is set power to 0.
-
+        if MODE.load(Ordering::Relaxed)==2 {
+            let _ = serial.write(b"");
+            return;
+        }
         if IN_RESET.load(Ordering::Relaxed) {
             match serial.read(&mut buf) {
                 Ok(_) => match buf[0] {
