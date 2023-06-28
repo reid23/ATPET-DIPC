@@ -56,7 +56,7 @@ class Pendulum:
         while not stop_event.is_set():
             try:
                 ser.write(bytearray([0])+struct.pack('>l', self.pwr))
-                sleep(0.02)
+                sleep(0.01)
                 self.y = np.array(str(ser.readline())[2:-3].split(','), dtype=float)
             except AttributeError:
                 pass

@@ -25,11 +25,13 @@ use embedded_hal::blocking::i2c::{Operation, Transactional}; // I2C HAL traits/t
 use embedded_hal::prelude::_embedded_hal_blocking_i2c_WriteRead; // actual i2c func
 use fugit::{RateExtU32, ExtU32}; // for .kHz() and similar
 use panic_halt as _; // make sure program halts on panic (need to mention crate for it to be linked)
+// use panic_abort as _;
 use pac::interrupt;
 use core::sync::atomic::{AtomicI32, AtomicU32, AtomicU16, AtomicU8, AtomicBool, Ordering};
 use hal::pio::{PIOBuilder, ValidStateMachine, Tx};
 use pio_proc::pio_file;
 use micromath::F32Ext;
+use core::panic::PanicInfo;
 
 // const STEPS_PER_MM: i32 = 10; // unused
 const PIO_FREQ: u32 = 5_000_000; // Hz
@@ -45,11 +47,12 @@ impl GetPeriod for i32{
     // takes speed in 0.1mm/s and converts it to period for pio
     fn get_period(&self) -> Result<(PinState, u32), &'static str>{
         if self == &0 {return Ok((PinState::Low, u32::MAX))}
-        let pwr = if self > &(MAX_SPEED*10*SPEED_MULT) {MAX_SPEED*10} 
-                  else if self < &-(MAX_SPEED*10*SPEED_MULT) {-MAX_SPEED*10} 
-                  else {*self/SPEED_MULT};
+        let pwr = if self > &(MAX_SPEED*10*SPEED_MULT) {MAX_SPEED*10*SPEED_MULT} 
+                  else if self < &-(MAX_SPEED*10*SPEED_MULT) {-MAX_SPEED*10*SPEED_MULT} 
+                  else {*self};
         let dir = if self < &0 {PinState::High} else {PinState::Low};
-        let delay = PIO_FREQ / pwr.abs() as u32;
+        let delay = (SPEED_MULT as u32 * PIO_FREQ) / pwr.abs() as u32;
+        // if delay > 2_000_000 {return Err("speed too low")}
         if delay < 19 {return Err("speed too high (took too much of itself lmao)");}
         Ok((dir, delay-14)) // 14 is len of pio program, PIO_FREQ/1_000_000 is pio ticks/us
     }
@@ -401,37 +404,36 @@ fn main() -> ! {
             1 => { //local
                 let top_err = - ((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32 + 13.5 * (1.0 + (((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes());
                 let end_err =   ((e - 2206) as f32 +  3.5 * (1.0 + (((e - 2206) as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
-                CART_ACC.store(((-1000*SPEED_MULT) as f32 *
-                    ((CART_POS.load(Ordering::Relaxed) as f32 / ((SPEED_MULT*1000) as f32) - f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes())) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
+                CART_ACC.store(((-10000*SPEED_MULT) as f32 *
+                    ((CART_POS.load(Ordering::Relaxed) as f32 / ((SPEED_MULT*10000) as f32) - f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes())) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
                     + top_err.wrap_angle() * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
                     + end_err.wrap_angle() * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
-                    + (CART_VEL.load(Ordering::Relaxed) as f32 / ((SPEED_MULT*1000) as f32)) * f32::from_be_bytes(K[3].load(Ordering::Relaxed).to_be_bytes())
+                    + (CART_VEL.load(Ordering::Relaxed) as f32 / ((SPEED_MULT*10000) as f32)) * f32::from_be_bytes(K[3].load(Ordering::Relaxed).to_be_bytes())
                     + VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[4].load(Ordering::Relaxed).to_be_bytes()) * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32
                     + VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[5].load(Ordering::Relaxed).to_be_bytes()) * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32)
                 ) as i32, Ordering::Relaxed); //calibrated values for 0, -1, 1
             },
             2 => {// home
                 CART_VEL.store(0, Ordering::Relaxed); //homing speed: 200 mm/s
-                CART_ACC.store(1000*SPEED_MULT, Ordering::Relaxed); //500 mm/s^2
+                CART_ACC.store(10000*SPEED_MULT, Ordering::Relaxed); //500 mm/s^2
                 delay.delay_ms(400); //get to 200 mm/s (takes 40mm)
                 CART_ACC.store(0, Ordering::Relaxed); //stop accelerating
 
                 while !IN_RESET.load(Ordering::Relaxed) {} //wait for button
                 CART_VEL.store(0, Ordering::Relaxed);
-                CART_POS.store(900*SPEED_MULT, Ordering::Relaxed); // set location
+                CART_POS.store(9000*SPEED_MULT, Ordering::Relaxed); // set location
                 
-                CART_ACC.store(-1000*SPEED_MULT, Ordering::Relaxed);
+                CART_ACC.store(-10000*SPEED_MULT, Ordering::Relaxed);
                 delay.delay_ms(400);
                 CART_ACC.store(0, Ordering::Relaxed); //stop accelerating
                 delay.delay_ms(1850); //move mm, because it takes 80 to accelerate and 80 to decelerate
-                CART_ACC.store(1000*SPEED_MULT, Ordering::Relaxed);
+                CART_ACC.store(10000*SPEED_MULT, Ordering::Relaxed);
                 delay.delay_ms(400);
                 CART_ACC.store(0, Ordering::Relaxed);
                 CART_VEL.store(0, Ordering::Relaxed);
                 
                 IN_RESET.store(false, Ordering::Relaxed); //fix reset
                 MODE.store(0, Ordering::Relaxed);
-                
             }
             _ => {}
         }
@@ -447,7 +449,7 @@ unsafe fn USBCTRL_IRQ() {
     // Grab the global objects. This is OK as we only access them under interrupt.
     let usb_dev = USB_DEVICE.as_mut().unwrap();
     let serial = USB_SERIAL.as_mut().unwrap();
-
+    
     // Poll the USB driver with all of our supported USB Classes
     if usb_dev.poll(&mut [serial]) {
         let mode = MODE.load(Ordering::Relaxed);
@@ -531,13 +533,13 @@ unsafe fn USBCTRL_IRQ() {
                     // 4247 pi
                     let mut message: String<100> = String::new();
                     let _ = write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", 
-                        CART_POS.load(Ordering::Relaxed) as f32 / ((1000*SPEED_MULT) as f32),
+                        CART_POS.load(Ordering::Relaxed) as f32 / ((10000*SPEED_MULT) as f32),
                         -final_angle, 
                         final_angle2,
-                        CART_VEL.load(Ordering::Relaxed) as f32 / ((1000*SPEED_MULT) as f32),
+                        CART_VEL.load(Ordering::Relaxed) as f32 / ((10000*SPEED_MULT) as f32),
                         VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32, 
                         VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32,
-                        CART_ACC.load(Ordering::Relaxed) as f32 / ((1000*SPEED_MULT) as f32),
+                        CART_ACC.load(Ordering::Relaxed) as f32 / ((10000*SPEED_MULT) as f32),
                     );
                     let _ = serial.write(message.as_bytes());
                 },
@@ -601,9 +603,12 @@ unsafe fn TIMER_IRQ_0() {
 
     // impose limits on acceleration (velocity is handled by .get_period())
     if acc > MAX_ACCELERATION*10*SPEED_MULT { acc = MAX_ACCELERATION*10*SPEED_MULT; }
-    else if acc < (-MAX_ACCELERATION*10*SPEED_MULT) { acc = -MAX_ACCELERATION*10*SPEED_MULT; }
-    
+    else if acc < -MAX_ACCELERATION*10*SPEED_MULT { acc = -MAX_ACCELERATION*10*SPEED_MULT; }
+    if cart_vel > MAX_SPEED*10*SPEED_MULT { cart_vel = MAX_SPEED*10*SPEED_MULT; }
+    else if cart_vel < -MAX_SPEED*10*SPEED_MULT { cart_vel = -MAX_SPEED*10*SPEED_MULT}
+
     CART_VEL.store(cart_vel + acc/100, Ordering::Relaxed); // the /100 bc time step is 10 ms
+
     let (dir, step) = cart_vel.get_period().unwrap_or((PinState::Low, u32::MAX));
 
     match DIR_PIN.as_mut().unwrap().set_state(dir){
@@ -633,3 +638,16 @@ unsafe fn TIMER_IRQ_0() {
         );
     alarm0.clear_interrupt();
 }
+
+// #[panic_handler]
+// unsafe fn panic(_info: &PanicInfo) -> ! {
+//     let serial = USB_SERIAL.as_mut().unwrap();
+//     let mut message: String<200> = String::new();
+//     let _ = write!(&mut message, "{}", _info);
+//     IN_RESET.store(true, Ordering::Relaxed);
+//     CART_ACC.store(0, Ordering::Relaxed);
+//     CART_VEL.store(0, Ordering::Relaxed);
+//     loop {
+//         let _ = serial.write(message.as_bytes());
+//     }
+// }

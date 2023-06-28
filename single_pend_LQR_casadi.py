@@ -5,7 +5,7 @@ from casadi import pi
 from time import sleep
 
 
-setpoint = 'down' # 'up' or 'down'
+setpoint = 'up' # 'up' or 'down'
 controller = 'pole placement' # 'pp' or 'lqr'
 
 Q = np.diag([75, 85, 1, 12])
@@ -15,6 +15,13 @@ eigs = np.array([
     [-3.2],
     [-3.1],
     [-3],
+])
+
+eigs = np.array([
+    [-2], 
+    [-3.2],
+    [-3.1],
+    [-4],
 ])
 
 if setpoint == 'up':
@@ -45,6 +52,7 @@ if __name__ == '__main__':
         p.zero_all()
         p.set(0)
         sleep(0.1)
+        print(K)
         p.set_K(K)
         p.set_SP(sp)
         input('Press [enter] to start balancing.')

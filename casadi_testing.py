@@ -142,14 +142,15 @@ class controller:
         for j in range(self.nstep):
             res = self.intfunc(x0=x, p=u[j])
             x = res['xf']
-            cost_acc += 100*cos(x[1]) + x[3]**2 + (5*x[0])**2
+            # cost_acc += 100*cos(x[1]) + x[3]**2 + (5*x[0])**2
+            cost_acc += 100*cos(x[1]) + (j/10)*x[3]**2 + (5*x[0])**2
+            
             # g += [x[0], 10*exp(-1.5*fabs(x[3]))-fabs(u[j])-0.8]
             # g += [x[0], -2.5*fabs(x[2])-fabs(u[j])]
             # thing = vertcat(x[2]**2, u[j]**2)
             # g += [x[0], bilin(self.cost_mat, thing, thing)]
             g += [x[0], 9*x[2]**4 + 50*x[2]**2 * u[j]**2 + 0.26*u[j]**4]
             # g += [x[0], x[2], x[3]]
-
 
 
         nlp = {'x':vertcat(*u), 'f':cost_acc, 'g':vertcat(*g)}
@@ -181,12 +182,12 @@ if __name__ == '__main__':
         mpc.make_step(x0=DM([0,0.01,0,0]))
         print(list(mpc.get_full_path()))
         exit()
-    mpc = controller(tstep=0.2, thoriz=1)
-    x0 = DM([0,0.01,0,0])
+    mpc = controller(tstep=0.1, thoriz=2.5)
+    x0 = DM([0,0.001,0,0])
     mpc.make_step(x0)
     sleep(2)
     record = []
-    for i in range(100):
+    for i in range(50):
         start = perf_counter()
         u = mpc.make_step(x0)
         dt = perf_counter()-start
