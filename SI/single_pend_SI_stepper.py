@@ -20,7 +20,6 @@ def func(y0, y1, dy0, dy1, f, l, ma, mb, I, c):
 
         # l*mb*(-9.8*(I + l**2*mb)*(ma + mb)*sin(y1) - (1.0*I*ma*f + 1.0*I*mb*f + 1.0*l**2*ma*mb*f + 1.0*l**2*mb**2*f*sin(y1)**2 - 4.9*l**2*mb**2*sin(2.0*y1))*cos(y1))/((I + l**2*mb)*(-l**2*mb**2*cos(y1)**2 + (I + l**2*mb)*(ma + mb))) 
     ])
-
 #%%
 def stepper_cost(data, constants):
     # print('stepper_cost', data.shape)

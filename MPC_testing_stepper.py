@@ -7,6 +7,9 @@ import sys
 from time import sleep, perf_counter
 from multiprocessing import Process, Array, Value
 #%%
+
+### PARAMETERS: L: 0.220451, c: 0.139187, offset: -0.01 (bottom calibrated)
+
 def get_mpc(tstep=0.1, thoriz=1, compile_nlp=True):
     model = do_mpc.model.Model('continuous')
     y0 = model.set_variable('_x', 'y_0')
@@ -32,6 +35,8 @@ def get_mpc(tstep=0.1, thoriz=1, compile_nlp=True):
     l, ma, mb, I = [0.24777857, 0.12615081, 0.06319876, 0.0036074 ]
     l, ma, mb, I = [0.24777857, 0.12615081, 0.075, 0.0015 ]
     l, ma, mb, I, c = [0.23116035, 0.00625   , 0.05      , 0.        , 0.10631411]
+    l, ma, mb, I, c = [0.23116035, 0   , 0.05      , 0.        , 0.10631411]
+
     # l, ma, mb, I, c = [0.23116035, 0.00625, 0.05, 0.0, 0.10631411]
     # l, ma, mb, I = [0.247, 0.126, 0.063, 0.001]
     # l, ma, mb, I = [0.257, 0.126, 0.075, 0.001] # good
@@ -78,7 +83,6 @@ def get_mpc(tstep=0.1, thoriz=1, compile_nlp=True):
 
     mpc = do_mpc.controller.MPC(model)
 
-    tstep = tstep # 0.1
     thorizon = thoriz # 1
     nhorizon = int(thorizon/tstep)
     setup_mpc = {
@@ -103,13 +107,13 @@ def get_mpc(tstep=0.1, thoriz=1, compile_nlp=True):
     # # m_term 
     # = 0*y1
     l_term = 3*model.aux['E_kin'] - 50*model.aux['E_pot'] + 20*dy[1]**2 - 20*cos(y1)*(dy[1]**2)
-    l_term = 10*model.aux['E_kin'] - 150*model.aux['E_pot'] + 10*cos(y1)*(dy[1]**2) + 100*y0**2
-    l_term = model.aux['E_kin'] - 100*model.aux['E_pot']
+    l_term = 10*model.aux['E_kin'] - 150*model.aux['E_pot'] + 200*y0**2
+    # l_term = model.aux['E_kin'] - 100*model.aux['E_pot']
     m_term = l_term
     # m_term = -model.aux['E_pot']+(model.x['y_0'])**2 # stage cost
 
-    mpc.set_objective(lterm=l_term, mterm = m_term)
-    mpc.set_rterm(f=5)
+    mpc.set_objective(lterm=l_term, mterm=m_term)
+    mpc.set_rterm(f=1)
 
 
     # mpc.set_nl_cons('y_0', y0**2, 0.4**2, soft_constraint=True)
@@ -123,7 +127,7 @@ def get_mpc(tstep=0.1, thoriz=1, compile_nlp=True):
     # mpc.bounds['lower','_x', 'y_1'] = -11
     # mpc.bounds['upper','_x', 'y_1'] = 11
 
-    mpc.set_nl_cons('vcon', dy[0]**2<1.5**2)
+    mpc.set_nl_cons('vcon', dy[0]**2<1**2)
     # mpc.set_nl_cons('pain', -cos(y1)*(dy[1]**2)<4**2, soft_constraint=True)
     # bounds on input:
     mpc.bounds['lower','_u', 'f'] = -1.5

@@ -73,6 +73,10 @@ class Pendulum:
             power (float): power level in [-1, 1] to send to motor
         """
         self.pwr = int(power*10000)
+    def home(self):
+        self.ser.write(bytearray([28]))
+    def estop(self):
+        self.ser.write(bytearray([101]))
     def set_SP(self, SP):
         """sets setpoints to the given list.
 
@@ -102,7 +106,7 @@ class Pendulum:
     def zero_all(self):
         """sets offsets such that current coordinates are all 0
         """
-        self.ser.write(bytearray([9]))
+        self.ser.write(bytearray([92]))
         sleep(0.02)
     def get_status(self):
         """gets value of status registers for each encoder, in the format [_,_,MD,ML,MH,_,_,_]
@@ -112,19 +116,24 @@ class Pendulum:
         print(self.ser.readline())
     
 if __name__ == '__main__':
-    power = 0.5
-    period = 1.2
-    # delay = 0.2
-    with open('/dev/stdout', 'a') as f:
-        print('[', file = f)
-    with Pendulum(file = '/dev/stdout') as p:
-        p.set(0)
-        sleep(1)
-        p.set(1)
-        sleep(0.5)
-        p.set(-1)
-        sleep(0.5)
+    power = 0.75
+    period = 1.5
 
+    # delay = 0.2
+    file = '/dev/null'
+    with open(file, 'a') as f:
+        print('[', file = f)
+    with Pendulum(file = file) as p:
+        p.home()
+        sleep(10)
+        p.set(0)
+        sleep(0.5)
+        p.set(power)
+        sleep(period)
+        p.set(-power)
+        sleep(period*2)
+        p.set(power)
+        sleep(period)
         # 0.2: 0.2 (1 kg lift)
         # 0.32N for 0.2 power
 
@@ -133,7 +142,8 @@ if __name__ == '__main__':
         #     p.set((np.sin(i)/2 + 0.5*np.sin(2*i))*0.666*power)
         #     sleep(period/(2*np.pi/0.1))
         p.set(0)
-        sleep(2)
+        p.estop()
+        sleep(0.5)
         # def print_add(joy):
         #     print('Added', joy)
 
@@ -163,5 +173,5 @@ if __name__ == '__main__':
         # p.set(0)
         # sleep(2)
 
-    with open('/dev/stdout', 'a') as f:
+    with open(file, 'a') as f:
         print('],', file = f, end = '')

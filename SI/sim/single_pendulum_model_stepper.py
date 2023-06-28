@@ -65,7 +65,7 @@ class dipc_model:
 
         self.track = Body('N')
         self.cart = Body('C', mass=self.ma)
-        self.top_pend = Body('P_1', mass=self.mb, central_inertia=inertia(self.cart.frame, 0, 0, self.I))
+        self.top_pend = Body('P_1', mass=self.mb)#, central_inertia=inertia(self.cart.frame, 0, 0, self.I))
 
         self.slider = PrismaticJoint('slider', self.track, self.cart, coordinates = self.y[0], speeds = self.y[2], parent_axis = self.track.x)
         self.rev1 = PinJoint('r1', self.cart, self.top_pend, coordinates=self.y[1], speeds=self.y[3],
@@ -119,6 +119,8 @@ class dipc_model:
         # self.ydot[3] = sp.simplify(self.ydot[3])
         # sp.pprint(self.ydot[3])
         self.ydot[3] = sp.simplify(self.ydot[3])
+        # self.ydot[3] = sp.trigsimp(self.ydot[3])
+        # self.ydot[3] = sp.simplify(self.ydot[3])
         sp.pprint(self.ydot[3])
         self.ydot = self.ydot.subs(a, self.F)
         self.A_sym, self.B_sym = self.method.method.to_linearizer().linearize(A_and_B=True, simplify=True)
@@ -270,7 +272,9 @@ if __name__ == '__main__':
 
     Q = np.diag([10, 100, 10, 50])
     R = np.diag([100])
+    print('making model')
     model = dipc_model()
+    print('model made')
     # model.ydot[2] = model.F
     # model.ydot[3] = (-(model.ma*model.F + 0.5*model.l*model.mb*-9.8*sp.sin(2*model.y[1]) - model.mb*model.l*(model.y[3]**2)*sp.sin(model.y[1]))*model.l*sp.cos(model.y[1]) + model.l*model.mb*-9.8*sp.sin(model.y[1]))/(model.mb*(model.l**2))
     # print(sp.simplify(sp.trigsimp(sp.expand(model.ydot))))

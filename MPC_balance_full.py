@@ -7,7 +7,7 @@ from time import sleep
 
 port = '/dev/tty.usbmodem00011'
 pwr = 0
-mpc, _, _ = get_mpc()
+mpc, _, _ = get_mpc(tstep=0.1)
 with serial.Serial(port, 115200) as p:
     try:
         p.write(bytearray([100])) # clear reset if in reset

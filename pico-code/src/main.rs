@@ -31,8 +31,8 @@ use micromath::F32Ext;
 
 // const STEPS_PER_MM: i32 = 10; // unused
 const PIO_FREQ: u32 = 5_000_000; // Hz
-const MAX_SPEED: i32 = 1500; // mm/s
-const MAX_ACCELERATION: i32 = 1500; //mm/s^2
+const MAX_SPEED: i32 = 5000; // mm/s
+const MAX_ACCELERATION: i32 = 5000; //mm/s^2
 const STEPPER_VELOCITY_UPDATE_TIME: u32 = 10_000; // in us (5 ticks/us, so max (5*this)/19 steps, min speed 0.1/5*this mm/s)
 
 
@@ -52,7 +52,23 @@ impl GetPeriod for i32{
         Ok((dir, delay-14)) // 14 is len of pio program, PIO_FREQ/1_000_000 is pio ticks/us
     }
 }
+
+trait AngleWrap{
+    fn wrap_angle(&self) -> f32;
+}
+impl AngleWrap for f32 {
+    fn wrap_angle(&self) -> f32 {
+        (*self+PI).rem_euclid(2.0*PI)-PI
+    }
+}
+
 static RAW_TOP: AtomicI32 = AtomicI32::new(0);
+
+static OFFSETS: [AtomicI32; 3] = [AtomicI32::new(0),
+                                  AtomicI32::new(0),
+                                  AtomicI32::new(0)];
+
+fn cope_snesors(state: [i32; 6]) {}
 
 static mut DIR_PIN: Option<Pin<hal::gpio::bank0::Gpio6, PushPullOutput>> = None;
 static mut DELAY_TX: Option<Tx<(pac::PIO1, SM0)>> = None;
@@ -149,7 +165,7 @@ fn main() -> ! {
     
     // status LED to show that board is on and not broken
     let mut led_pin = pins.led.into_push_pull_output();
-
+    let mut driver_reset_pin = pins.gpio12.into_push_pull_output();
     // pin to check limit switches
     // let reset_pin = pins.gpio11.into_mode(hal::gpio::Interrupt::EdgeHigh);
     let reset_pin = pins.gpio11.into_pull_up_input();
@@ -169,6 +185,8 @@ fn main() -> ! {
     
     // turn on the status LED to show the board isn't ded and all the setup worked (probably)
     led_pin.set_high().unwrap();
+    // enable stepper driver
+    driver_reset_pin.set_high().unwrap();
     
     // Note (safety): This is safe as interrupts haven't been started yet
     unsafe { USB_BUS = Some(usb_bus); }
@@ -346,8 +364,12 @@ fn main() -> ! {
             // delay.delay_ms(500);
             // led_pin.set_high().unwrap();
             // delay.delay_ms(500);
-            continue;
+            if MODE.load(Ordering::Relaxed) != 2 {
+                driver_reset_pin.set_low().unwrap();
+                continue;
+            }
         } else {
+            driver_reset_pin.set_high().unwrap();
             led_pin.set_high().unwrap();
         }
         // Check if we need to do usb stuff (aka did we receive a message)
@@ -361,23 +383,36 @@ fn main() -> ! {
                 let top_err = - ((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32 + 13.5 * (1.0 + (((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes());
                 let end_err =   ((e - 2206) as f32 +  3.5 * (1.0 + (((e - 2206) as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
                 CART_ACC.store((-10000.0*
-                    (CART_POS.load(Ordering::Relaxed) as f32 * 0.0001 - f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes()) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
-                    + top_err * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
-                    + end_err * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
+                    ((CART_POS.load(Ordering::Relaxed) as f32 * 0.0001 - f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes())) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
+                    + top_err.wrap_angle() * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
+                    + end_err.wrap_angle() * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
                     + CART_VEL.load(Ordering::Relaxed) as f32 * 0.0001 * f32::from_be_bytes(K[3].load(Ordering::Relaxed).to_be_bytes())
                     + VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[4].load(Ordering::Relaxed).to_be_bytes()) * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32
                     + VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[5].load(Ordering::Relaxed).to_be_bytes()) * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32)
                 ) as i32, Ordering::Relaxed); //calibrated values for 0, -1, 1
             },
-            // 2 => { //pleb
-            //     CUR_POWER.store(pleb_fn(timer
-            //                         .get_counter()
-            //                         .checked_duration_since(t0)
-            //                         .unwrap()
-            //                         .to_micros(),
-            //                     ).unwrap_or(0.0).get_duty(&basic_norm),
-            //                     Ordering::Relaxed);
-            // },
+            2 => {// home
+                CART_VEL.store(0, Ordering::Relaxed); //homing speed: 200 mm/s
+                CART_ACC.store(10000, Ordering::Relaxed); //500 mm/s^2
+                delay.delay_ms(400); //get to 200 mm/s (takes 40mm)
+                CART_ACC.store(0, Ordering::Relaxed); //stop accelerating
+
+                while !IN_RESET.load(Ordering::Relaxed) {} //wait for button
+                CART_VEL.store(0, Ordering::Relaxed);
+                CART_POS.store(9000, Ordering::Relaxed); // set location
+                
+                CART_ACC.store(-10000, Ordering::Relaxed);
+                delay.delay_ms(400);
+                CART_ACC.store(0, Ordering::Relaxed); //stop accelerating
+                delay.delay_ms(1850); //move mm, because it takes 80 to accelerate and 80 to decelerate
+                CART_ACC.store(10000, Ordering::Relaxed);
+                delay.delay_ms(400);
+                CART_ACC.store(0, Ordering::Relaxed);
+                CART_VEL.store(0, Ordering::Relaxed);
+                
+                IN_RESET.store(false, Ordering::Relaxed); //fix reset
+                MODE.store(0, Ordering::Relaxed);
+            }
             _ => {}
         }
     }
@@ -419,25 +454,16 @@ unsafe fn USBCTRL_IRQ() {
             }
         } else {
             match serial.read(&mut buf) {
-                Ok(1) => {
-                    if buf[0] == 9 {
-
-                        TOP_ROTS.store(0, Ordering::Relaxed);
-                        END_ROTS.store(0, Ordering::Relaxed);
-
-                        TOP_OFFSET.store(TOP.load(Ordering::Relaxed)%4096,  Ordering::Relaxed);
-                        END_OFFSET.store(END.load(Ordering::Relaxed)%4096, Ordering::Relaxed);
-                        
-
-                        let _ = serial.write(b"All counts set to zero.\n");
-                    }
-                },
-                Ok(_) => {
+                Ok(size) => {
                     match buf[0] { //32767.5
                         0 => {
+                            if size < 5 {
+                                let _ = serial.write(b"Error: SET_ACC requires four bytes of data.\n");
+                            }
                             CART_ACC.store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed);
                         },
                         1 => {
+                            while MODE.load(Ordering::Relaxed) == 2 {} // wait for homing to finish, if in progress
                             MODE.store(buf[1], Ordering::Relaxed);
                         }
                         2..=8 => {
@@ -449,9 +475,31 @@ unsafe fn USBCTRL_IRQ() {
                         11..=14 => {
                             SP[(buf[0] as usize-11)].store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed)
                         },
+                        28 => {
+                            MODE.store(2, Ordering::Relaxed);
+                        },
+                        92 => {
+                            if size == 1 {
+                                CART_POS.store(0, Ordering::Relaxed);
+                            } else if size == 4 {
+                                CART_POS.store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed);
+                            } else if size == 12 {
+
+                            }
+                        }
+                        101 => {
+                            __cortex_m_rt_IO_IRQ_BANK0();
+                        }
+
                         _ => {},
                     }
                     //def fix_ang(x): return x+76 + 0.5*(cos(2*pi*(x+76)/4096)+1)*27
+                    // fn angle_cope(top: i32, end: i32) -> (i32, i32){
+                    //     let angle = (top + TOP_OFFSET.load(Ordering::Relaxed));
+                    //     let final_angle = (angle as f32 + 13.5*(1.0+(PI*(angle as f32)/2048.0).cos())) * RADS_PER_TICK;
+                    //     let angle2 = (end - 2206);
+                    //     let final_angle2 = (angle2 as f32 + 3.5*(1.0+(PI*(angle2 as f32)/2048.0).cos())) * RADS_PER_TICK;
+                    // }
                     let angle = (TOP.load(Ordering::Relaxed) + TOP_OFFSET.load(Ordering::Relaxed));
                     let final_angle = (angle as f32 + 13.5*(1.0+(PI*(angle as f32)/2048.0).cos())) * RADS_PER_TICK;
                     let angle2 = (END.load(Ordering::Relaxed) - 2206);
@@ -469,7 +517,7 @@ unsafe fn USBCTRL_IRQ() {
                         CART_ACC.load(Ordering::Relaxed) as f32 / 10000.0,
                     );
                     let _ = serial.write(message.as_bytes());
-                }
+                },
                 Err(_e) => {} // do nothing, idk what to do
             }
         }
@@ -478,13 +526,17 @@ unsafe fn USBCTRL_IRQ() {
 
 #[interrupt]
 unsafe fn IO_IRQ_BANK0() {
-    CART_ACC.store(0, Ordering::Relaxed);
-    CART_VEL.store(0, Ordering::Relaxed);
+    if MODE.load(Ordering::Relaxed) != 2 { //if we're not homing
+        CART_ACC.store(0, Ordering::Relaxed);
+        CART_VEL.store(0, Ordering::Relaxed);
+    }
     IN_RESET.store(true, Ordering::Relaxed);
-    
+
     // USB_SERIAL.as_mut().unwrap().write(b"Limit Switch Triggered! Waiting for reset command.\n").unwrap();
     match RESET_PIN.as_mut() {
-        Some(reset_pin) => {reset_pin.clear_interrupt(hal::gpio::Interrupt::EdgeHigh)},
+        Some(reset_pin) => {
+            reset_pin.clear_interrupt(hal::gpio::Interrupt::EdgeHigh);
+        },
         None => {}
     }
 }

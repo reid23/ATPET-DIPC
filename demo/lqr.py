@@ -9,10 +9,10 @@ with Pendulum(file = 'LQR_demo_data_down.txt') as p:
     p.set_mode('usb')
     p.set(0)
     sleep(0.1)
-    p.set_K(K['dlqr'])
+    p.set_K(K['ulqr'])
 
-    p.set_SP([0, -0.01, 0]) # down
-    # p.set_SP([0, np.pi-0.008, 0]) # up
+    # p.set_SP([0, -0.02, 0]) # down
+    p.set_SP([0, np.pi-0.033, 0]) # up
 
     input('Press [enter] to start balancing.')
     p.set_mode('local')

@@ -8,3 +8,4 @@ Cargo.lock
 target/
 .picowgo
 .DS_Store
+data/

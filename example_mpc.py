@@ -58,7 +58,7 @@ show_animation = True
 store_animation = False
 store_results = False
 
-mpc, simulator, model = get_mpc()
+mpc, simulator, model = get_mpc(tstep=0.2, thoriz=1, compile_nlp=False)
 estimator = do_mpc.estimator.StateFeedback(model)
 
 x0 = np.array([[0.1],[0],[0],[0]])

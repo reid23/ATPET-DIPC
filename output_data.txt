@@ -1,3 +1,0 @@
-ns = 0, nx = 4, nz = 0, nq = 0, ny = 0, np = 5, nd = 0, nu = 1
-Generating c-code of nlp.
-Compiling c-code of nlp.
