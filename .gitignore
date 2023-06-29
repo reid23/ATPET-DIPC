@@ -1,3 +1,4 @@
+.DS_Store
 wandb/
 SI/wandb/
 nohup.out
@@ -9,3 +10,5 @@ target/
 .picowgo
 .DS_Store
 data/
+nlp.c
+nlp.so

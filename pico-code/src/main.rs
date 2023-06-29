@@ -343,6 +343,9 @@ fn main() -> ! {
     // end[8] = 1;
     // end[9] = 0;
     // end_i2c.write(0x07, &end);
+    //set zero pos
+    let mut end = [0;2];
+    end_i2c.write_read(0x036, &[0x01, 0x00, 0x1f], &mut end);
 
     loop {
         let mut top = [0; 2];
@@ -403,7 +406,7 @@ fn main() -> ! {
             },
             1 => { //local
                 let top_err = - ((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32 + 13.5 * (1.0 + (((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes());
-                let end_err =   ((e - 2206) as f32 +  3.5 * (1.0 + (((e - 2206) as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
+                let end_err = (e  as f32 + 5.5 * (1.0 + ((e as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
                 CART_ACC.store(((-10000*SPEED_MULT) as f32 *
                     ((CART_POS.load(Ordering::Relaxed) as f32 / ((SPEED_MULT*10000) as f32) - f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes())) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
                     + top_err.wrap_angle() * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
@@ -525,10 +528,10 @@ unsafe fn USBCTRL_IRQ() {
                     //     let angle2 = (end - 2206);
                     //     let final_angle2 = (angle2 as f32 + 3.5*(1.0+(PI*(angle2 as f32)/2048.0).cos())) * RADS_PER_TICK;
                     // }
-                    let angle = (TOP.load(Ordering::Relaxed) + TOP_OFFSET.load(Ordering::Relaxed));
+                    let angle = TOP.load(Ordering::Relaxed) + TOP_OFFSET.load(Ordering::Relaxed);
                     let final_angle = (angle as f32 + 13.5*(1.0+(PI*(angle as f32)/2048.0).cos())) * RADS_PER_TICK;
-                    let angle2 = (END.load(Ordering::Relaxed) - 2206);
-                    let final_angle2 = (angle2 as f32 + 3.5*(1.0+(PI*(angle2 as f32)/2048.0).cos())) * RADS_PER_TICK;
+                    let angle2 = END.load(Ordering::Relaxed);
+                    let final_angle2 = (angle2 as f32 + 5.5 * (1.0+(PI*(angle2 as f32)/2048.0).cos())) * RADS_PER_TICK;
                     // 2206 0
                     // 4247 pi
                     let mut message: String<100> = String::new();
@@ -575,13 +578,13 @@ unsafe fn TIMER_IRQ_0() {
         IRQ_COUNTER.store(0, Ordering::Relaxed);
         let angle = (TOP.load(Ordering::Relaxed) + TOP_OFFSET.load(Ordering::Relaxed));
         let final_angle = (angle as f32 + 13.5*(1.0+((angle as f32)*RADS_PER_TICK).cos())) as i32;
-        let angle2 = (END.load(Ordering::Relaxed) - 2206);
-        let final_angle2 = (angle2 as f32 + 3.5*(1.0+((angle2 as f32)*RADS_PER_TICK).cos())) as i32;
+        let angle2 = (END.load(Ordering::Relaxed));
+        let final_angle2 = (angle2 as f32 + 5.5*(1.0+((angle2 as f32)*RADS_PER_TICK).cos())) as i32;
 
         let vt = (OLD_VT.load(Ordering::Relaxed) + TOP_OFFSET.load(Ordering::Relaxed));
         let final_vt = (vt as f32 + 13.5*(1.0+((vt as f32)*RADS_PER_TICK).cos())) as i32;
-        let ve = (OLD_VE.load(Ordering::Relaxed) - 2206);
-        let final_ve = (ve as f32 +  3.5*(1.0+((ve as f32)*RADS_PER_TICK).cos())) as i32;
+        let ve = (OLD_VE.load(Ordering::Relaxed));
+        let final_ve = (ve as f32 + 5.5*(1.0+((ve as f32)*RADS_PER_TICK).cos())) as i32;
         
         // let vt = OLD_VT.load(Ordering::Relaxed);
         OLD_VT.store(TOP.load(Ordering::Relaxed), Ordering::Relaxed);
