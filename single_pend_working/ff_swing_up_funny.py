@@ -66,17 +66,19 @@ with serial.Serial(port, 115200) as p:
         
         while True:
             p.write([1,1]) # set to local mode
+            sleep(0.01)
             p.read_all()
             # wait until pendulum is stable in the down position
+            input()
             while True:
                 p.write(bytearray([255, 255]))
                 y = np.array(str(p.readline())[2:-3].split(','), dtype=float)
                 print(np.remainder(np.abs(y[1]+0.015333), 2*np.pi), np.abs(y[3]), np.abs(y[4]))
-                if np.remainder(np.abs(y[1]+0.015333), 2*np.pi)<0.008 and np.abs(y[3])<0.005 and np.abs(y[4])<0.0005:
+                if np.remainder(np.abs(y[1]+0.015333), 2*np.pi)<0.02 and np.abs(y[3])<0.005 and np.abs(y[4])<0.0005:
                     break
                 sleep(0.01)
             p.write([1, 0]) # set to usb mode for switching K and sp
-            sleep(0.25)
+            sleep(1)
 
             # set LQR gain matrix for actual upwards balancing
             for idx, i in enumerate(up_K):

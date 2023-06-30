@@ -6,14 +6,6 @@ from time import perf_counter
 from scipy.integrate import solve_ivp
 from time import sleep
 #%%
-l, c, f = p[0], p[1], p[2]
-ydot = vertcat(
-    y[2],
-    y[3],
-    f,
-    -c*y[3] + (-9.8*sin(y[1])-f*cos(y[1]))/l
-)
-ode = {'x':y, 'p': p, 'ode': ydot}
 
 
 def get_integrator(t_step, p):
