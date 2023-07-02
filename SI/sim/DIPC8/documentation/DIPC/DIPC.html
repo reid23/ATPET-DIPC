@@ -1,0 +1,305 @@
+
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>DIPC</title>
+  <link rel=stylesheet type=text/css href="resources/documentation.css">
+  <script src="resources/jquery.min.js"></script>
+  <script src="resources/scripts.js"></script>
+</head>
+<body>
+<div class="wrapper">
+<nav>
+  <ul class="cf">
+    <li><a href="https://www.wolfram.com/system-modeler/">System Modeler</a></li>
+  <li><a href="DIPC.html">DIPC</a></li>
+  </ul>
+</nav>
+<header>
+  <table><tr><td>
+    <h1>DIPC</h1>
+    <p>double inverted pendulum on a cart</p>
+  </td><td>
+    <div><img width="60" height="60" src="resources/icons/DIPC_60x60.png"></div>
+  </td></tr></table>
+</header>
+<section id="diagram">
+<h1>Diagram</h1>
+<div class="hideable">
+<a class="colorbox" href="resources/diagrams/DIPC_diagram_large.png"><img src="resources/diagrams/DIPC_diagram.png" width="250" height="200"><span class="magnify"></span></a>
+</div>
+</section>
+<section id="parameters" >
+  <h1>Parameters <span class="count">(10)</span></h1>
+  <div class="hideable">
+    <table class="shared-styles style-1">
+    <colgroup><col class="col-1" /><col class="col-2" /></colgroup>
+    <tbody>
+    <tr>
+      <th>top_friction</th>
+      <td>
+        <p><span>Value:</span> 0.001</p>
+        <p><span>Type:</span> Modelica.SIunits.RotationalDampingConstant (N·m·s/rad)</p>
+        <p><span>Description:</span> friction of cart joint</p>
+      </td>
+    </tr>
+    <tr>
+      <th>end_friction</th>
+      <td>
+        <p><span>Value:</span> 0.001</p>
+        <p><span>Type:</span> Modelica.SIunits.RotationalDampingConstant (N·m·s/rad)</p>
+        <p><span>Description:</span> friction of mid-pend joint</p>
+      </td>
+    </tr>
+    <tr>
+      <th>top_mass</th>
+      <td>
+        <p><span>Value:</span> 0.1</p>
+        <p><span>Type:</span> Modelica.SIunits.Mass (kg)</p>
+        <p><span>Description:</span> mass of first pendulum</p>
+      </td>
+    </tr>
+    <tr>
+      <th>end_mass</th>
+      <td>
+        <p><span>Value:</span> 0.1</p>
+        <p><span>Type:</span> Modelica.SIunits.Mass (kg)</p>
+        <p><span>Description:</span> mass of end pendulum</p>
+      </td>
+    </tr>
+    <tr>
+      <th>top_L</th>
+      <td>
+        <p><span>Value:</span> 0.3</p>
+        <p><span>Type:</span> Modelica.SIunits.Length (m)</p>
+        <p><span>Description:</span> length of top pendulum</p>
+      </td>
+    </tr>
+    <tr>
+      <th>top_lc</th>
+      <td>
+        <p><span>Value:</span> 0.15</p>
+        <p><span>Type:</span> Modelica.SIunits.Length (m)</p>
+        <p><span>Description:</span> distance from cart pivot to first pendulum COM</p>
+      </td>
+    </tr>
+    <tr>
+      <th>end_lc</th>
+      <td>
+        <p><span>Value:</span> 0.15</p>
+        <p><span>Type:</span> Modelica.SIunits.Length (m)</p>
+        <p><span>Description:</span> distance from mid pivot to end pendulum COM</p>
+      </td>
+    </tr>
+    <tr>
+      <th>top_inertia</th>
+      <td>
+        <p><span>Value:</span> 0.001</p>
+        <p><span>Type:</span> Modelica.SIunits.MomentOfInertia (kg·m²)</p>
+        <p><span>Description:</span> top pendulum rotational inertia about z axis</p>
+      </td>
+    </tr>
+    <tr>
+      <th>end_inertia</th>
+      <td>
+        <p><span>Value:</span> 0.001</p>
+        <p><span>Type:</span> Modelica.SIunits.MomentOfInertia (kg·m²)</p>
+        <p><span>Description:</span> end pendulum rotational inertia about z axis</p>
+      </td>
+    </tr>
+    <tr>
+      <th>end_L</th>
+      <td>
+        <p><span>Value:</span> 0.3</p>
+        <p><span>Type:</span> Modelica.SIunits.Length (m)</p>
+        <p><span>Description:</span> length of end pendulum</p>
+      </td>
+    </tr>
+    </tbody>
+    </table>
+  </div>
+</section>
+<section id="connectors" class="closed">
+  <h1>Connectors <span class="count">(7)</span></h1>
+  <div class="hideable">
+    <table class="shared-styles style-3">
+    <colgroup><col class="col-1" /><col class="col-2" /><col class="col-3" /></colgroup>
+    <tbody>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Blocks.Interfaces.RealInput_32x32.png"></td>
+      <th>u</th>
+      <td>
+        <p><span>Type:</span> Modelica.Blocks.Interfaces.RealInput</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Blocks.Interfaces.RealOutput_32x32.png"></td>
+      <th>y0</th>
+      <td>
+        <p><span>Type:</span> Modelica.Blocks.Interfaces.RealOutput</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Blocks.Interfaces.RealOutput_32x32.png"></td>
+      <th>y1</th>
+      <td>
+        <p><span>Type:</span> Modelica.Blocks.Interfaces.RealOutput</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Blocks.Interfaces.RealOutput_32x32.png"></td>
+      <th>y2</th>
+      <td>
+        <p><span>Type:</span> Modelica.Blocks.Interfaces.RealOutput</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Blocks.Interfaces.RealOutput_32x32.png"></td>
+      <th>y3</th>
+      <td>
+        <p><span>Type:</span> Modelica.Blocks.Interfaces.RealOutput</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Blocks.Interfaces.RealOutput_32x32.png"></td>
+      <th>y4</th>
+      <td>
+        <p><span>Type:</span> Modelica.Blocks.Interfaces.RealOutput</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Blocks.Interfaces.RealOutput_32x32.png"></td>
+      <th>y5</th>
+      <td>
+        <p><span>Type:</span> Modelica.Blocks.Interfaces.RealOutput</p>
+      </td>
+    </tr>
+    </tbody>
+    </table>
+  </div>
+</section>
+<section id="components" class="closed">
+  <h1>Components <span class="count">(16)</span></h1>
+  <div class="hideable">
+    <table class="shared-styles style-3">
+    <colgroup><col class="col-1" /><col class="col-2" /><col class="col-3" /></colgroup>
+    <tbody>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.MultiBody.World_32x32.png"></td>
+      <th>world</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.MultiBody.World</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.MultiBody.Joints.Prismatic_32x32.png"></td>
+      <th>prismatic1</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.MultiBody.Joints.Prismatic</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.MultiBody.Parts.BodyBox_32x32.png"></td>
+      <th>cart</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.MultiBody.Parts.BodyBox</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.MultiBody.Parts.BodyShape_32x32.png"></td>
+      <th>top_pend</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.MultiBody.Parts.BodyShape</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.MultiBody.Parts.BodyShape_32x32.png"></td>
+      <th>end_pend</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.MultiBody.Parts.BodyShape</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.Translational.Sources.Accelerate_32x32.png"></td>
+      <th>accelerate1</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.Translational.Sources.Accelerate</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.MultiBody.Joints.Revolute_32x32.png"></td>
+      <th>revolute1</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.MultiBody.Joints.Revolute</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.MultiBody.Joints.Revolute_32x32.png"></td>
+      <th>revolute2</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.MultiBody.Joints.Revolute</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.Rotational.Components.Damper_32x32.png"></td>
+      <th>damper1</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.Rotational.Components.Damper</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.Rotational.Components.Damper_32x32.png"></td>
+      <th>damper2</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.Rotational.Components.Damper</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.Rotational.Sensors.RelSpeedSensor_32x32.png"></td>
+      <th>relSpeedSensor1</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.Rotational.Sensors.RelSpeedSensor</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.Rotational.Sensors.RelAngleSensor_32x32.png"></td>
+      <th>relAngleSensor1</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.Rotational.Sensors.RelAngleSensor</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.Rotational.Sensors.RelAngleSensor_32x32.png"></td>
+      <th>relAngleSensor2</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.Rotational.Sensors.RelAngleSensor</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.Rotational.Sensors.RelSpeedSensor_32x32.png"></td>
+      <th>relSpeedSensor2</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.Rotational.Sensors.RelSpeedSensor</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.Translational.Sensors.RelSpeedSensor_32x32.png"></td>
+      <th>relSpeedSensor3</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.Translational.Sensors.RelSpeedSensor</p>
+      </td>
+    </tr>
+    <tr>
+      <td><img width="32" height="32" src="resources/icons/Modelica.Mechanics.Translational.Sensors.RelPositionSensor_32x32.png"></td>
+      <th>relPositionSensor1</th>
+      <td>
+        <p><span>Type:</span> Modelica.Mechanics.Translational.Sensors.RelPositionSensor</p>
+      </td>
+    </tr>
+    </tbody>
+    </table>
+  </div>
+</section>
+</div>
+</body>
+</html>
