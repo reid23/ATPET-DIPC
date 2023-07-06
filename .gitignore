@@ -12,3 +12,5 @@ target/
 data/
 nlp.c
 nlp.so
+gen.c
+gen.so

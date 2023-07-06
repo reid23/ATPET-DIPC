@@ -186,6 +186,7 @@ if __name__ == '__main__':
     model.subs_params()
 
     f = model.get_pole_placement_func()
+    f.generate('gen.c')
     tf = 0.01
     intfunc = model.get_integrator(tf)
     op_pt = ([0, ca.pi, 0, 0, 0, 0], 0)
