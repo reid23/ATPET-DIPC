@@ -632,7 +632,7 @@ unsafe fn TIMER_IRQ_0() {
         let vt = VT.load(Ordering::Relaxed);
         let ve = VE.load(Ordering::Relaxed);
 
-        if final_angle.wrap_angle() 
+        // if final_angle.wrap_angle()
         
         let top_err = - ((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32 + 13.5 * (1.0 + (((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes());
         let end_err = (e  as f32 + 5.5 * (1.0 + ((e as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
