@@ -27,7 +27,7 @@ use fugit::{RateExtU32, ExtU32}; // for .kHz() and similar
 use panic_halt as _; // make sure program halts on panic (need to mention crate for it to be linked)
 // use panic_abort as _;
 use pac::interrupt;
-use core::sync::atomic::{AtomicI32, AtomicU32, AtomicU16, AtomicU8, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicI32, AtomicU32, AtomicU16, AtomicU8, AtomicUsize, AtomicBool, Ordering};
 use hal::pio::{PIOBuilder, ValidStateMachine, Tx};
 use pio_proc::pio_file;
 use micromath::F32Ext;
@@ -66,7 +66,7 @@ impl AngleWrap for f32 {
         (*self+PI).rem_euclid(2.0*PI)-PI
     }
 }
-
+impl AngleWrap for i32
 // static RAW_TOP: AtomicI32 = AtomicI32::new(0);
 
 
@@ -125,11 +125,20 @@ static K: [AtomicI32; 6] = [AtomicI32::new(0),
                             AtomicI32::new(0),
                             AtomicI32::new(0)];
 
+const SWING_UP_PROG: [i32; 24] = [2.575035906172058, 2.575035906172058, -3.8158905593996133, -3.8158905593996133, -2.0671993855312296, -2.0671993855312296, 4.139213882689204, 4.139213882689204, 2.2243153434826377, 2.2243153434826377, 1.4948059154622, 1.4948059154622, -4.421279471702257, -4.421279471702257, -2.082844104057677, -2.082844104057677, -1.819244414580912, -1.819244414580912, 4.242038184131376, 4.242038184131376, 2.3720656176437367, 2.3720656176437367, -3.938846230847921, -3.938846230847921];
+const SWING_DOWN_PROG: [i32; 17] = [-3.385853038570042, -2.291104168320536, 4.1975310847926535, 3.8602780696650716, 2.631301215914938, -4.386163191848309, -3.5911054562968814, -2.4652948343294234, -1.8780577501933995, 1.0977526545032275, 3.883398002439094, 4.100956276604702, 2.813741073637396, 2.0584780031239647, 0.585821960770236, -2.955463562063751, -4.426063147664362];
+const UP_PROG_LEN: usize = 48;
+const DOWN_PROG_LEN: usize = 34;
+static SWING_UP_IDX: AtomicUsize = AtomicUsize::new(0);
+static SWING_DOWN_IDX: AtomicUsize = AtomicUsize::new(0);
+
 static SP: [AtomicI32; 3] = [AtomicI32::new(0), //cart setpoint  (m)
                             AtomicI32::new(0),  //top setpoint (rad)
                             AtomicI32::new(0)]; //end setpoint (rad)
 
 const RADS_PER_TICK: f32 = PI/2048.0;
+
+static FULL_AUTO_MODE: AtomicUsize = AtomicUsize::new(0);
 
 #[entry]
 fn main() -> ! {
@@ -437,7 +446,7 @@ fn main() -> ! {
                 
                 IN_RESET.store(false, Ordering::Relaxed); //fix reset
                 MODE.store(0, Ordering::Relaxed);
-            }
+            },
             _ => {}
         }
     }
@@ -594,8 +603,47 @@ unsafe fn TIMER_IRQ_0() {
 
         VT.store( -(final_angle - final_vt), Ordering::Relaxed);
         VE.store( final_angle2 - final_ve, Ordering::Relaxed);
+        
+        let mut up_idx = SWING_UP_IDX.load(Ordering::Relaxed);
+        let mut down_idx = SWING_DOWN_IDX.load(Ordering::Relaxed);
+
+        if up_idx > UP_PROG_LEN { up_idx = 0; }
+        if up_idx > 0 { up_idx += 1; }
+        if down_idx > DOWN_PROG_LEN { down_idx = 0; }
+        if down_idx > 0 { down_idx += 1; }
+
+        SWING_UP_IDX.store(up_idx, Ordering::Relaxed);
+        SWING_DOWN_IDX.store(down_idx, Ordering::Relaxed);
     } else {
         IRQ_COUNTER.store(c+1, Ordering::Relaxed);
+    }
+
+    if MODE.load(Ordering::Relaxed) == 3 {
+        let angle = TOP.load(Ordering::Relaxed) + TOP_OFFSET.load(Ordering::Relaxed);
+        let final_angle = -(angle as f32 + 13.5*(1.0+(PI*(angle as f32)/2048.0).cos())) * RADS_PER_TICK;
+        let angle2 = END.load(Ordering::Relaxed);
+        let final_angle2 = (angle2 as f32 + 5.5 * (1.0+(PI*(angle2 as f32)/2048.0).cos())) * RADS_PER_TICK;
+
+        let c = CART_POS.load(Ordering::Relaxed);
+        let t = TOP.load(Ordering::Relaxed);
+        let e = END.load(Ordering::Relaxed);
+
+        let vc = CART_VEL.load(Ordering::Relaxed);
+        let vt = VT.load(Ordering::Relaxed);
+        let ve = VE.load(Ordering::Relaxed);
+
+        if final_angle.wrap_angle() 
+        
+        let top_err = - ((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32 + 13.5 * (1.0 + (((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes());
+        let end_err = (e  as f32 + 5.5 * (1.0 + ((e as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
+        CART_ACC.store(((-10000*SPEED_MULT) as f32 *
+            ((c as f32 / ((SPEED_MULT*10000) as f32) - f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes())) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
+            + top_err.wrap_angle() * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
+            + end_err.wrap_angle() * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
+            + (vc as f32 / ((SPEED_MULT*10000) as f32)) * f32::from_be_bytes(K[3].load(Ordering::Relaxed).to_be_bytes())
+            + vt as f32 * RADS_PER_TICK * f32::from_be_bytes(K[4].load(Ordering::Relaxed).to_be_bytes()) * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32
+            + ve as f32 * RADS_PER_TICK * f32::from_be_bytes(K[5].load(Ordering::Relaxed).to_be_bytes()) * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32)
+        ) as i32, Ordering::Relaxed);
     }
 
     let tx = DELAY_TX.as_mut().unwrap(); 

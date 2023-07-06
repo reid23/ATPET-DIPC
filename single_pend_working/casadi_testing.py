@@ -1,5 +1,7 @@
 #%%
-from casadi import sin, cos, pi, integrator, vertcat, SX, MX, DM
+from casadi import sin, cos, pi, integrator, vertcat, vertsplit, horzcat, jacobian, inv, mpower, Function, SX, MX, DM
+from sympy import symbols
+import sympy as sym
 import numpy as np
 import casadi
 from time import perf_counter
@@ -47,6 +49,35 @@ def eval_ode_casadi(t_step, t_f, x0=np.array([0,pi/2,0,0]), p=np.array([0.231160
         x0 = int_func(x0=x0, p=p)['xf']
         res.append(x0)
     return np.array(res)
+
+def get_pole_placement_func(p):
+    l, c = p[0], p[1]
+    f = SX.sym('f')
+    y = SX.sym('y', 4)
+    ydot = vertcat(
+        y[2],
+        y[3],
+        f,
+        -c*y[3] + (-9.8*sin(y[1])-f*cos(y[1]))/l
+    )
+
+    eigs = symbols('e:4')
+    x = symbols('x')
+
+    prod = [(x-i) for i in eigs]
+    prod = prod[0]*prod[1]*prod[2]*prod[3]
+    coeffs = prod.expand().as_poly(x).all_coeffs()
+
+    x = SX.sym('x')
+    eigs = SX.sym('eigs', 4)
+    e0, e1, e2, e3 = vertsplit(eigs)
+    a = eval(str(coeffs))
+
+    A = jacobian(ydot, y)
+    B = jacobian(ydot, f)
+    print((A@B).shape)
+    K = horzcat(0,0,0,1)@(inv(horzcat(*[(mpower(A, n))@B for n in range(4)]))@sum([mpower(A, (4-n))*a[n] for n in range(5)]))
+    return Function('pole_placement_func', [y, f, eigs], [K])
 #%%
 def model(t, y, l, ma, mb, I, c, f):
     return np.array([
@@ -216,8 +247,20 @@ if __name__ == '__main__':
         print(list(mpc.get_full_path()))
         # print(mpc.sol['x'])
         exit()
-    mpc = controller(tstep=0.1, thoriz=1)
-    x0 = DM([0,0.01,0,0])
+
+    eigs = np.array([
+        [-2], 
+        [-3.2],
+        [-3.1],
+        [-4],
+    ])
+    f = get_pole_placement_func((0.220451, 0.139187))
+    print(f)
+    print(f([0, casadi.pi/2, 0, 0], 0, eigs))
+    f.generate('gen.c')
+    # exit()
+    mpc = controller(tstep=0.2, thoriz=1)
+    x0 = DM([0,0.001,0,0])
     mpc.make_step(x0)
     sleep(2)
     record = []
