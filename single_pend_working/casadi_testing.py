@@ -104,7 +104,9 @@ class controller:
             -c*y[3] + (-9.8*sin(y[1])-f*cos(y[1]))/l
         )
         ode = {'x':y, 'p':f, 'ode': ydot}
-        self.intfunc = integrator('F_i', 'rk', ode, dict(t0=0, tf=self.tstep))
+        self.intfunc = integrator('F_i', 'rk', ode, 0, self.tstep)#dict(t0=0, tf=self.tstep))
+        ode2 = {'x':y, 'u':f, 'ode': ydot}
+        self.intfunc2 = integrator('F_i', 'rk', ode2, 0, np.arange(0, self.thoriz, self.tstep))
         self.solver_opts = {
             'ipopt.print_level': 0,
             'ipopt.sb': 'yes',
@@ -114,6 +116,32 @@ class controller:
         self.x0 = DM(x0)
         self.soln = DM([0.0]*self.nstep)
         self.cost_mat = MX(DM([[9, 25], [25, 0.26]]))
+    def make_step2(self, x0=None, steps=1):
+        u = [MX.sym('u' + str(j)) for j in range(self.nstep)]
+        cost_acc = 0
+        g = []
+        x = x0 if x0 is not None else self.x0
+        res = self.intfunc2(x0=x, u=u)['xf']
+        for j, x in enumerate(res):
+            cost_acc += 100*cos(x[1]) + (j/10)*x[3]**2 + (5*x[0])**2
+            g += [x[0], 9*x[2]**4 + 50*x[2]**2 * u[j]**2 + 0.26*u[j]**4]
+        
+        nlp = {'x':vertcat(*u), 'f':cost_acc, 'g':vertcat(*g)}
+        solver = casadi.nlpsol('solver', 'ipopt', nlp, self.solver_opts)
+        self.soln = solver(
+            # steps allows us to optimally set the initial guess
+            # even if more than one timestep has passed since last iteration
+            x0=casadi.vertcat(self.soln[steps:], DM([self.soln[-1]]*steps)),
+
+            # don't need constraints on u (aka x) because
+            # the quadratic term in g does that already
+            # so just use g
+
+            # these match g
+            lbg=[-0.7, 0]*self.nstep,
+            ubg=[0.7, 100]*self.nstep
+        )['x']
+
     def make_step(self, x0=None, steps=1):
         # create a control value for each time step
         # these are what we'll optimize later
