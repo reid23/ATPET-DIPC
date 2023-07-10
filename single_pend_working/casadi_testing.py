@@ -111,7 +111,7 @@ class controller:
             'ipopt.print_level': 0,
             'ipopt.sb': 'yes',
             'print_time': 0,
-            # 'ipopt.linear_solver': 'MA27',
+            'ipopt.linear_solver': 'MA27',
         }
         self.x0 = DM(x0)
         self.soln = DM([0.0]*self.nstep)
@@ -212,7 +212,53 @@ class controller:
         )
         self.soln = DM(np.array(self.sol['x']))
         return self.soln[0]
-    
+    def make_step_function(self):
+        u = [MX.sym('u' + str(j)) for j in range(self.nstep)]
+        path = [MX.sym('x0', 4)]
+        soln_0 = MX.sym('u0', self.nstep)
+        # init some variables
+        cost_acc = 0
+        g = []
+
+        # we have to do this every time because I don't think it updates the whole graph if you change x0???
+        # something like that
+        for j in range(self.nstep):
+            # actual integration
+            res = self.intfunc(x0=path[-1], p=u[j])
+            x = res['xf']
+            path += [x]
+
+            # update cost
+
+            # cost_acc += 100*cos(x[1]) + x[3]**2 + (5*x[0])**2
+            cost_acc += 100*cos(x[1]) + (j/10)*x[3]**2 + (5*x[0])**2
+
+            g += [x[0], 9*x[2]**4 + 50*x[2]**2 * u[j]**2 + 0.26*u[j]**4]
+
+        # formulate NLP and create the solver with it
+        nlp = {'x':vertcat(*u), 'f':cost_acc, 'g':vertcat(*g), 'p': path[0]}
+        solver = casadi.nlpsol('solver', 'ipopt', nlp, self.solver_opts)
+        # solver.generate_dependencies('nlpsol.c')
+        # this is where the actual solving takes place
+        # everything above this takes about 0.01-0.015s
+        # this is what takes all the time
+        x0 = MX.sym('x0', 4)
+        soln = solver(
+            # steps allows us to optimally set the initial guess
+            # even if more than one timestep has passed since last iteration
+            p = x0,
+            x0=soln_0,
+
+            # don't need constraints on u (aka x) because
+            # the quadratic term in g does that already
+            # so just use g
+
+            # these match g
+            lbg=[-0.7, 0]*self.nstep,
+            ubg=[0.7, 100]*self.nstep
+        )['x']
+
+        return Function('solver', [x0, soln_0], [soln])
     def get_full_path(self):
         return np.array(self.soln).flatten()
 
@@ -239,12 +285,13 @@ if __name__ == '__main__':
     # exit()
     mpc = controller(tstep=0.2, thoriz=1)
     x0 = DM([0,0.001,0,0])
-    mpc.make_step2(x0)
+    mpc.make_step(x0)
     sleep(2)
     record = []
     for i in range(50):
         start = perf_counter()
-        u = mpc.make_step2(x0)
+        # u_plan = f(x0, vertcat(u_plan[1:], u_plan[-1]))
+        u = mpc.make_step(x0=x0)
         dt = perf_counter()-start
         print(str(np.round(np.array(x0).flatten(), 4)).ljust(55), np.format_float_positional(u, 5, trim='k').ljust(9), round(dt, 4))
         x0 = mpc.intfunc(x0=x0, u=u)['xf']
