@@ -56,23 +56,23 @@ class Pendulum:
         while not stop_event.is_set():
             try:
                 ser.write(bytearray([0])+struct.pack('>l', self.pwr))
-                sleep(0.01)
+                sleep(0.005)
                 self.y = np.array(str(ser.readline())[2:-3].split(','), dtype=float)
+                if not file is None: 
+                    # print(self.y)
+                    print(*([perf_counter_ns()-self.start, round(self.pwr, 3)]+list(map(lambda x: np.format_float_positional(x, precision=5, trim='k'), self.y))), sep = ',', end='],\n[', file = file)
             except AttributeError:
                 pass
             except Exception as e:
-                print(e, file=file)
+                print(e, file=sys.stderr)
                 pass
-            if not file is None: 
-                # print(self.y)
-                print(*([perf_counter_ns()-self.start, round(self.pwr, 3)]+list(map(lambda x: np.format_float_positional(x, precision=5, trim='k'), self.y))), sep = ',', end='],\n[', file = file)
     def set(self, power):
         """sets power to given value, accounting for deadband
 
         Args:
             power (float): power level in [-1, 1] to send to motor
         """
-        self.pwr = int(power*10000)
+        self.pwr = int(power*1_000_000)
     def home(self):
         self.ser.write(bytearray([28]))
     def estop(self):
@@ -116,34 +116,38 @@ class Pendulum:
         print(self.ser.readline())
     
 if __name__ == '__main__':
-    power = 0.75
-    period = 1.5
+    power = -3
+    period = 0.2
 
     # delay = 0.2
-    file = '/dev/null'
-    with open(file, 'a') as f:
-        print('[', file = f)
-    with Pendulum(file = file) as p:
-        p.home()
-        sleep(10)
-        p.set(0)
-        sleep(0.5)
-        p.set(power)
-        sleep(period)
-        p.set(-power)
-        sleep(period*2)
-        p.set(power)
-        sleep(period)
-        # 0.2: 0.2 (1 kg lift)
-        # 0.32N for 0.2 power
+    file = 'data/dp_run1.txt'
+    # file = '/dev/stdout'
 
-        # for i in np.arange(0, 20*np.pi, 0.1):
-        #     # print(np.sin(i)/5)
-        #     p.set((np.sin(i)/2 + 0.5*np.sin(2*i))*0.666*power)
-        #     sleep(period/(2*np.pi/0.1))
+    with open(file, 'a') as f:
+        print('[', end='', file = f)
+    with Pendulum(file = file) as p:
+        # p.home()
+        # sleep(10)
         p.set(0)
+        sleep(1)
+        for i in range(5):
+            p.set(power)
+            sleep(period)
+            p.set(-power)
+            sleep(period*2)
+            p.set(power)
+            sleep(period)
+            # 0.2: 0.2 (1 kg lift)
+            # 0.32N for 0.2 power
+
+            # for i in np.arange(0, 20*np.pi, 0.1):
+            #     # print(np.sin(i)/5)
+            #     p.set((np.sin(i)/2 + 0.5*np.sin(2*i))*0.666*power)
+            #     sleep(period/(2*np.pi/0.1))
+            p.set(0)
+        sleep(3)
+
         p.estop()
-        sleep(0.5)
         # def print_add(joy):
         #     print('Added', joy)
 

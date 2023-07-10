@@ -129,6 +129,7 @@ static SP: [AtomicI32; 3] = [AtomicI32::new(0), //cart setpoint  (m)
                             AtomicI32::new(0),  //top setpoint (rad)
                             AtomicI32::new(0)]; //end setpoint (rad)
 
+static AVG_LOOP_TIME: AtomicU32 = AtomicU32::new(0);
 const RADS_PER_TICK: f32 = PI/2048.0;
 
 #[entry]
@@ -286,7 +287,7 @@ fn main() -> ! {
         pac.I2C0,
         top_sda,
         top_scl,
-        400.kHz(),
+        1000.kHz(),
         &mut pac.RESETS,
         &clocks.peripheral_clock,
     );
@@ -298,7 +299,7 @@ fn main() -> ! {
         pac.I2C1,
         end_sda,
         end_scl,
-        400.kHz(),
+        1000.kHz(),
         &mut pac.RESETS,
         &clocks.peripheral_clock,
     );
@@ -343,20 +344,34 @@ fn main() -> ! {
     // end[8] = 1;
     // end[9] = 0;
     // end_i2c.write(0x07, &end);
-    //set zero pos
-    let mut end = [0;2];
-    end_i2c.write_read(0x036, &[0x01, 0x00, 0x1f], &mut end);
+    //set zero pos: 4020, 2714: 00001111 10110100, 00001010 10011010
+    let mut buf = [0;2];
+    top_i2c.write_read(0x36, &[0x01, 0b00001111, 0b10110100], &mut buf);
+    end_i2c.write_read(0x36, &[0x01, 0b00001010, 0b10011010], &mut buf);
 
+    //set registers to correct thing because they don't auto-increment from here
+    let _ = top_i2c.write_read(0x36, &[0x0Eu8], &mut buf);
+    let _ = end_i2c.write_read(0x36, &[0x0Eu8], &mut buf);
+    
+    // let mut time_buf = [0; 20];
+    // let mut counter = 0;
+    // let mut acc = 0;
     loop {
+        // let tic = timer.get_counter();
+        
+        
         let mut top = [0; 2];
         let mut end = [0; 2];
-        
+
         // first grab all encoder positions
-        let _ = top_i2c.write_read(0x36, &[0x0Eu8], &mut top);
-        let _ = end_i2c.write_read(0x36, &[0x0Eu8], &mut end);
+        top_i2c.read(0x36, &mut top);
+        end_i2c.read(0x36, &mut end);
+
+        // let _ = top_i2c.write_read(0x36, &[0x0Eu8], &mut top);
+        // let _ = end_i2c.write_read(0x36, &[0x0Eu8], &mut end);
         
-        if u16::from_be_bytes(top)  > 4096 || 
-           u16::from_be_bytes(end)  > 4096 { continue; }
+        // if u16::from_be_bytes(top)  > 4096 || 
+        //    u16::from_be_bytes(end)  > 4096 { continue; }
         
         oldt = top_pos;
         olde = end_pos;
@@ -366,7 +381,7 @@ fn main() -> ! {
         
         dt = top_pos-oldt;
         de = end_pos-olde;
-
+        
         // check if angle wrap happened
         top_rots = TOP_ROTS.load(Ordering::Relaxed);
         end_rots = END_ROTS.load(Ordering::Relaxed);
@@ -378,7 +393,7 @@ fn main() -> ! {
         else if de < -3500 && de >= -4096 { END_ROTS.store(end_rots + 1, Ordering::Relaxed); end_rots += 1;}
         
         let (t, e) = (top_pos+top_rots*4096, end_pos+end_rots*4096);
-
+        
         TOP.store(t, Ordering::Relaxed);
         END.store(e, Ordering::Relaxed);
         
@@ -405,8 +420,8 @@ fn main() -> ! {
                 //do nothing, we already set power in usb irq
             },
             1 => { //local
-                let top_err = - ((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32 + 13.5 * (1.0 + (((t + TOP_OFFSET.load(Ordering::Relaxed))   as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes());
-                let end_err = (e  as f32 + 5.5 * (1.0 + ((e as f32) * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
+                let top_err = - (t as f32 + 19.0 * (1.0 + ((t as f32 * RADS_PER_TICK).cos()))) * RADS_PER_TICK - f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes());
+                let end_err = e  as f32 * RADS_PER_TICK - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
                 CART_ACC.store(((-10000*SPEED_MULT) as f32 *
                     ((CART_POS.load(Ordering::Relaxed) as f32 / ((SPEED_MULT*10000) as f32) - f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes())) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
                     + top_err.wrap_angle() * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
@@ -440,6 +455,15 @@ fn main() -> ! {
             }
             _ => {}
         }
+        // time_buf[counter] = timer.get_counter().checked_duration_since(tic).unwrap().to_micros() as u32;
+        // counter += 1;
+        // if counter >= 20 { counter = 0; }
+        
+        // acc = 0;
+        // for i in 0..20 {
+        //     acc += time_buf[i];
+        // }
+        // AVG_LOOP_TIME.store(acc, Ordering::Relaxed);
     }
 
 }
@@ -448,7 +472,7 @@ fn main() -> ! {
 #[interrupt]
 unsafe fn USBCTRL_IRQ() {
     // use core::sync::atomic::{AtomicBool, Ordering};
-
+    
     // Grab the global objects. This is OK as we only access them under interrupt.
     let usb_dev = USB_DEVICE.as_mut().unwrap();
     let serial = USB_SERIAL.as_mut().unwrap();
@@ -528,21 +552,21 @@ unsafe fn USBCTRL_IRQ() {
                     //     let angle2 = (end - 2206);
                     //     let final_angle2 = (angle2 as f32 + 3.5*(1.0+(PI*(angle2 as f32)/2048.0).cos())) * RADS_PER_TICK;
                     // }
-                    let angle = TOP.load(Ordering::Relaxed) + TOP_OFFSET.load(Ordering::Relaxed);
-                    let final_angle = (angle as f32 + 13.5*(1.0+(PI*(angle as f32)/2048.0).cos())) * RADS_PER_TICK;
-                    let angle2 = END.load(Ordering::Relaxed);
-                    let final_angle2 = (angle2 as f32 + 5.5 * (1.0+(PI*(angle2 as f32)/2048.0).cos())) * RADS_PER_TICK;
+                    let angle = TOP.load(Ordering::Relaxed) as f32;
+                    let final_angle = - (angle + 19.0*(-1.0+(angle*RADS_PER_TICK).cos())) * RADS_PER_TICK;
+                    let final_angle2 = END.load(Ordering::Relaxed) as f32 * RADS_PER_TICK;
                     // 2206 0
                     // 4247 pi
                     let mut message: String<100> = String::new();
                     let _ = write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", 
                         CART_POS.load(Ordering::Relaxed) as f32 / ((10000*SPEED_MULT) as f32),
-                        -final_angle, 
+                        final_angle, 
                         final_angle2,
                         CART_VEL.load(Ordering::Relaxed) as f32 / ((10000*SPEED_MULT) as f32),
                         VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32, 
                         VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32,
                         CART_ACC.load(Ordering::Relaxed) as f32 / ((10000*SPEED_MULT) as f32),
+                        // AVG_LOOP_TIME.load(Ordering::Relaxed),
                     );
                     let _ = serial.write(message.as_bytes());
                 },
@@ -576,15 +600,13 @@ unsafe fn TIMER_IRQ_0() {
     let c = IRQ_COUNTER.load(Ordering::Relaxed);
     if c >= 4 {
         IRQ_COUNTER.store(0, Ordering::Relaxed);
-        let angle = (TOP.load(Ordering::Relaxed) + TOP_OFFSET.load(Ordering::Relaxed));
-        let final_angle = (angle as f32 + 13.5*(1.0+((angle as f32)*RADS_PER_TICK).cos())) as i32;
-        let angle2 = (END.load(Ordering::Relaxed));
-        let final_angle2 = (angle2 as f32 + 5.5*(1.0+((angle2 as f32)*RADS_PER_TICK).cos())) as i32;
+        let angle = TOP.load(Ordering::Relaxed);
+        let final_angle = (angle as f32 + 19.0*(-1.0+((angle as f32)*RADS_PER_TICK).cos())) as i32;
+        let final_angle2 = END.load(Ordering::Relaxed);
 
-        let vt = (OLD_VT.load(Ordering::Relaxed) + TOP_OFFSET.load(Ordering::Relaxed));
-        let final_vt = (vt as f32 + 13.5*(1.0+((vt as f32)*RADS_PER_TICK).cos())) as i32;
-        let ve = (OLD_VE.load(Ordering::Relaxed));
-        let final_ve = (ve as f32 + 5.5*(1.0+((ve as f32)*RADS_PER_TICK).cos())) as i32;
+        let vt = OLD_VT.load(Ordering::Relaxed);
+        let final_vt = (vt as f32 + 19.0*(-1.0+((vt as f32)*RADS_PER_TICK).cos())) as i32;
+        let final_ve = OLD_VE.load(Ordering::Relaxed);
         
         // let vt = OLD_VT.load(Ordering::Relaxed);
         OLD_VT.store(TOP.load(Ordering::Relaxed), Ordering::Relaxed);
@@ -602,7 +624,7 @@ unsafe fn TIMER_IRQ_0() {
     let sm = STEP_SM.as_mut().unwrap();
     let mut cart_vel = CART_VEL.load(Ordering::Relaxed);
     let mut acc = CART_ACC.load(Ordering::Relaxed);
-    CART_POS.store(CART_POS.load(Ordering::Relaxed) + cart_vel/100, Ordering::Relaxed);
+    CART_POS.store(CART_POS.load(Ordering::Relaxed) + (cart_vel/(1_000_000/STEPPER_VELOCITY_UPDATE_TIME as i32)), Ordering::Relaxed);
 
     // impose limits on acceleration (velocity is handled by .get_period())
     if acc > MAX_ACCELERATION*10*SPEED_MULT { acc = MAX_ACCELERATION*10*SPEED_MULT; }

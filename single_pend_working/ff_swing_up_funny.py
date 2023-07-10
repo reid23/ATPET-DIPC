@@ -89,7 +89,7 @@ with serial.Serial(port, 115200) as p:
             # feedforward phase
             for u in ff_prog:
                 start = perf_counter()
-                p.write(bytearray([0])+struct.pack('>i', int(u*1000000)))
+                p.write(bytearray([0])+struct.pack('>i', int(u*1_000_000)))
                 y = np.array(str(p.readline())[2:-3].split(','), dtype=float)
                 states.append([y[0], y[1], y[3], y[4], u])
                 # wait

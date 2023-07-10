@@ -6,7 +6,7 @@ from lmfit import Parameters, minimize, fit_report
 from matplotlib import pyplot as plt
 from IPython.display import clear_output
 import sys
-sys.path.append('../')
+sys.path.append('../single_pend_working/')
 from casadi_testing import get_integrator
 #%%
 if False:
@@ -17,7 +17,7 @@ if False:
     data[:, 0] = np.cumsum(data[:, 0]+0.00000035)
     data[:, 0] -= data[0, 0] 
 else:
-    with open('../ethan_data.txt', 'r') as f:
+    with open('../data/ethan_data.txt', 'r') as f:
         data = np.array(eval(f.read()))
 
     data = data[10:-10, (0, 2, 3, 5, 6, 1)]
@@ -91,6 +91,7 @@ def func(y0, y1, dy0, dy1, f, l, c):
 
 def lmfit_func(params, data):
     global n
+    print(params['l']*1.0)
     consts = np.array([0.217, 0.1])*np.array([params['l'], params['c']])/20
     y_fit = scipy.integrate.solve_ivp(lambda t, y: func(*y, data[np.searchsorted(data[:, 0], t), -1], *consts).flatten(),
                                         y0=data[0, 1:5],

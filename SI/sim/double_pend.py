@@ -150,7 +150,7 @@ class double_pend_model:
         return Function('B_func', [self.q, self.u], [ca.jacobian(self.ydot_with_params, self.u)])
     def get_integrator(self, grid):
         ode = {'x': self.q, 'u': self.u, 'ode': self.ydot_with_params}
-        return integrator('int_func', 'rk', ode, 0, grid)
+        return integrator('int_func', 'rk', ode, 0.0, grid)
     def get_pole_placement_func(self):
         eigs = symbols('e:6')
         x = symbols('x')
@@ -186,9 +186,9 @@ if __name__ == '__main__':
     model = double_pend_model()
     model.update_params({'c0': 0.01, 'I0': 0.01, 'l0': 0.3, 'a0': 0.15, 'm0': 0.1, 'c1': 0.01, 'I1': 0.01, 'l1': 0.3, 'a1': 0.15, 'm1': 0.1})
     model.subs_params()
-
+    # print(model.get_integrator(np.arange(0, 10, 0.1)))
     f = model.get_pole_placement_func()
-    f.generate('gen.c')
+    # f.generate('gen.c')
 
     tf = 0.01
     intfunc = model.get_integrator(tf)
