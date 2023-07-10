@@ -9,13 +9,14 @@ from casadi import MX, DM, vertcat, vertsplit, Function, integrator, mpower, hor
 from time import perf_counter
 from control import lqr
 
-start = perf_counter()
 
 sym.init_printing()
 sym.physics.mechanics.mechanics_printing()
 #%%
 class double_pend_model:
     def __init__(self, params=None, use_saved_sage=True, sage_saved_f_path='f_solved.txt'):
+        self.use_saved_sage = use_saved_sage
+        self.sage_saved_f_path = sage_saved_f_path
         self.param_names = ['c0', 'I0', 'l0', 'a0', 'm0', 'c1', 'I1', 'l1', 'a1', 'm1']
         #* nice printing version
         # q = dynamicsymbols('q:3')
@@ -77,8 +78,7 @@ class double_pend_model:
         method.form_eoms()
         ydot = method.rhs()
 
-        get_new_sage = False
-        if get_new_sage:
+        if not self.use_saved_sage:
             print(f"""
         # enter into sage:
         q = var('q0 q1 q2 q3 q4 q5')
@@ -90,7 +90,7 @@ class double_pend_model:
         """)
             sage_result = input('enter sage result: ')
         else:
-            with open('f_solved.txt', 'r') as file:
+            with open(self.sage_saved_f_path, 'r') as file:
                 sage_result = file.read()
         f_solved = eval(sage_result.replace('q0', 'q[0]')
                                 .replace('q1', 'q[1]')
@@ -175,8 +175,10 @@ class double_pend_model:
         K = horzcat(0,0,0,0,0,1)@(inv(horzcat(*[(mpower(A, n))@B for n in range(6)]))@sum([mpower(A, (6-n))*a[n] for n in range(7)]))
         return Function('pole_placement_func', [q, u, eigs], [K])
 
-    
-
+    def __str__(self):
+        return f'{self.__class__.__name__}(params={self.params})'
+    def __repr__(self):
+        return f'{self.__class__.__name__}(params={self.params}, use_saved_sage={self.use_saved_sage}, sage_saved_f_path={self.sage_saved_f_path})'
 # %%
 if __name__ == '__main__':
     from matplotlib import pyplot as plt
@@ -187,6 +189,7 @@ if __name__ == '__main__':
 
     f = model.get_pole_placement_func()
     f.generate('gen.c')
+
     tf = 0.01
     intfunc = model.get_integrator(tf)
     op_pt = ([0, ca.pi, 0, 0, 0, 0], 0)
