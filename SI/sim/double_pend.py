@@ -80,14 +80,14 @@ class double_pend_model:
 
         if not self.use_saved_sage:
             print(f"""
-        # enter into sage:
-        q = var('q0 q1 q2 q3 q4 q5')
-        var('f u')
-        var('m0 m1 m2 l0 l1 a0 a1 I0 I1 c0 c1')
-        res = solve([u == ({str(ydot[3]).replace('(t)', '')})], f)
-        assert len(res) == 1
-        res[0].rhs().full_simplify()._sympy_()
-        """)
+# enter into sage:
+q = var('q0 q1 q2 q3 q4 q5')
+var('f u')
+var('m0 m1 m2 l0 l1 a0 a1 I0 I1 c0 c1')
+res = solve([u == ({str(ydot[3]).replace('(t)', '')})], f)
+assert len(res) == 1
+res[0].rhs().full_simplify()._sympy_()
+""")
             sage_result = input('enter sage result: ')
         else:
             with open(self.sage_saved_f_path, 'r') as file:
