@@ -61,8 +61,8 @@ class double_pend_model:
         bodies = (track, cart, top_pend, end_pend)
 
         cart.apply_force(f*cart.x) # motor
-        top_pend.apply_torque(-c[0]*q[1]*top_pend.z)
-        end_pend.apply_torque(-c[1]*q[2]*end_pend.z, reaction_body=top_pend)
+        top_pend.apply_torque(-c[0]*dq[1]*top_pend.z)
+        end_pend.apply_torque(-c[1]*dq[2]*end_pend.z, reaction_body=top_pend)
 
         # %%
 
