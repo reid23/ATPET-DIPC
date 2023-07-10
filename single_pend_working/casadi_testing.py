@@ -1,5 +1,5 @@
 #%%
-from casadi import sin, cos, pi, integrator, vertcat, vertsplit, horzcat, jacobian, inv, mpower, Function, SX, MX, DM
+from casadi import sin, cos, pi, integrator, vertcat, vertsplit, horzcat, horzsplit, jacobian, inv, mpower, Function, SX, MX, DM
 from sympy import symbols
 import sympy as sym
 import numpy as np
@@ -111,22 +111,24 @@ class controller:
             'ipopt.print_level': 0,
             'ipopt.sb': 'yes',
             'print_time': 0,
-            'ipopt.linear_solver': 'MA57',
+            # 'ipopt.linear_solver': 'MA27',
         }
         self.x0 = DM(x0)
         self.soln = DM([0.0]*self.nstep)
         self.cost_mat = MX(DM([[9, 25], [25, 0.26]]))
     def make_step2(self, x0=None, steps=1):
-        u = [MX.sym('u' + str(j)) for j in range(self.nstep)]
+        u = MX.sym('u', 1, 5)
         cost_acc = 0
         g = []
         x = x0 if x0 is not None else self.x0
         res = self.intfunc2(x0=x, u=u)['xf']
-        for j, x in enumerate(res):
+        print(res.shape)
+        split_u = horzsplit(u)
+        for j, x in enumerate(horzsplit(res)):
             cost_acc += 100*cos(x[1]) + (j/10)*x[3]**2 + (5*x[0])**2
-            g += [x[0], 9*x[2]**4 + 50*x[2]**2 * u[j]**2 + 0.26*u[j]**4]
+            g += [x[0], 9*x[2]**4 + 50*x[2]**2 * split_u[j]**2 + 0.26*split_u[j]**4]
         
-        nlp = {'x':vertcat(*u), 'f':cost_acc, 'g':vertcat(*g)}
+        nlp = {'x':u.T, 'f':cost_acc, 'g':vertcat(*g)}
         solver = casadi.nlpsol('solver', 'ipopt', nlp, self.solver_opts)
         self.soln = solver(
             # steps allows us to optimally set the initial guess
@@ -237,12 +239,12 @@ if __name__ == '__main__':
     # exit()
     mpc = controller(tstep=0.2, thoriz=1)
     x0 = DM([0,0.001,0,0])
-    mpc.make_step(x0)
+    mpc.make_step2(x0)
     sleep(2)
     record = []
     for i in range(50):
         start = perf_counter()
-        u = mpc.make_step(x0)
+        u = mpc.make_step2(x0)
         dt = perf_counter()-start
         print(str(np.round(np.array(x0).flatten(), 4)).ljust(55), np.format_float_positional(u, 5, trim='k').ljust(9), round(dt, 4))
         x0 = mpc.intfunc(x0=x0, u=u)['xf']
