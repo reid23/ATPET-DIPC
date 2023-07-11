@@ -57,14 +57,15 @@ class Pendulum:
             try:
                 ser.write(bytearray([0])+struct.pack('>l', self.pwr))
                 sleep(0.005)
-                self.y = np.array(str(ser.readline())[2:-3].split(','), dtype=float)
+                self.in_text = str(ser.readline())
+                self.y = np.array(self.in_text[2:-3].split(','), dtype=float)
                 if not file is None: 
                     # print(self.y)
                     print(*([perf_counter_ns()-self.start, round(self.pwr, 3)]+list(map(lambda x: np.format_float_positional(x, precision=5, trim='k'), self.y))), sep = ',', end='],\n[', file = file)
             except AttributeError:
                 pass
             except Exception as e:
-                print(e, file=sys.stderr)
+                print(e, self.in_text, file=sys.stderr)
                 pass
     def set(self, power):
         """sets power to given value, accounting for deadband
@@ -120,13 +121,15 @@ if __name__ == '__main__':
     period = 0.2
 
     # delay = 0.2
-    file = 'data/dp_run1.txt'
-    # file = '/dev/stdout'
+    file = 'data/dp_run2.txt'
+    file = '/dev/stdout'
 
     with open(file, 'a') as f:
         print('[', end='', file = f)
     with Pendulum(file = file) as p:
-        # p.home()
+        while True: sleep(0.1)
+        p.set_K([0,0,0,0,0,0])
+        p.set_SP([0.0,0.0,0.0])
         # sleep(10)
         p.set(0)
         sleep(1)

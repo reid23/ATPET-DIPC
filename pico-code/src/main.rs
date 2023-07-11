@@ -287,7 +287,7 @@ fn main() -> ! {
         pac.I2C0,
         top_sda,
         top_scl,
-        1000.kHz(),
+        800.kHz(),
         &mut pac.RESETS,
         &clocks.peripheral_clock,
     );
@@ -299,7 +299,7 @@ fn main() -> ! {
         pac.I2C1,
         end_sda,
         end_scl,
-        1000.kHz(),
+        800.kHz(),
         &mut pac.RESETS,
         &clocks.peripheral_clock,
     );
@@ -420,8 +420,8 @@ fn main() -> ! {
                 //do nothing, we already set power in usb irq
             },
             1 => { //local
-                let top_err = - (t as f32 + 19.0 * (1.0 + ((t as f32 * RADS_PER_TICK).cos()))) * RADS_PER_TICK - f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes());
-                let end_err = e  as f32 * RADS_PER_TICK - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
+                let top_err = - (t as f32 + 19.0 * (- 1.0 + (t as f32 * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes());
+                let end_err = e as f32 * RADS_PER_TICK - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
                 CART_ACC.store(((-10000*SPEED_MULT) as f32 *
                     ((CART_POS.load(Ordering::Relaxed) as f32 / ((SPEED_MULT*10000) as f32) - f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes())) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
                     + top_err.wrap_angle() * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
@@ -430,7 +430,7 @@ fn main() -> ! {
                     + VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[4].load(Ordering::Relaxed).to_be_bytes()) * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32
                     + VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[5].load(Ordering::Relaxed).to_be_bytes()) * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32)
                 ) as i32, Ordering::Relaxed); //calibrated values for 0, -1, 1
-            },
+            }, //     VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32
             2 => {// home
                 CART_VEL.store(0, Ordering::Relaxed); //homing speed: 200 mm/s
                 CART_ACC.store(10000*SPEED_MULT, Ordering::Relaxed); //500 mm/s^2
@@ -516,14 +516,14 @@ unsafe fn USBCTRL_IRQ() {
                                 MODE.store(buf[1], Ordering::Relaxed);
                             }
                         }
-                        2..=8 => {
+                        2..=7 => {
                             K[(buf[0] as usize)-2].store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed);
                         }
                         10 => {
                             // *GET_STATUS_FLAG.as_mut().unwrap() = true;
                         },
-                        11..=14 => {
-                            SP[(buf[0] as usize-11)].store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed)
+                        11..=13 => {
+                            SP[(buf[0] as usize-11)].store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed);
                         },
                         28 => {
                             MODE.store(2, Ordering::Relaxed);
@@ -541,7 +541,23 @@ unsafe fn USBCTRL_IRQ() {
                         }
                         101 => { //e-stop, basically
                             __cortex_m_rt_IO_IRQ_BANK0();
-                        }
+                        },
+                        114 => {
+                            let mut message1: String<100> = String::new();
+                            let _ = write!(&mut message1, "SP: [{:.6},{:.6},{:.6}], K: [{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}]\n", 
+                                f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes()),
+                                f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes()),
+                                f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes()),
+                                f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes()),
+                                f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes()),
+                                f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes()),
+                                f32::from_be_bytes(K[3].load(Ordering::Relaxed).to_be_bytes()),
+                                f32::from_be_bytes(K[4].load(Ordering::Relaxed).to_be_bytes()),
+                                f32::from_be_bytes(K[5].load(Ordering::Relaxed).to_be_bytes()),
+                            );
+                            let _ = serial.write(message1.as_bytes());
+
+                        },
                         
                         _ => {},
                     }

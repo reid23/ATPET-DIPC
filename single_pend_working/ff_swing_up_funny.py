@@ -99,7 +99,7 @@ with serial.Serial(port, 115200) as p:
             # print('\ahere')
             while True:
                 x = input('Enter next x setpoint (in m), [d] to swing down, or [q] to quit: ')
-                if x == 'a':  stop_function(p)
+                if x == 'q':  stop_function(p)
                 if x == 'd': break
                 p.write(bytearray([11])+struct.pack('>f', float(x))) # set x setpoint
 

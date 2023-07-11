@@ -111,8 +111,8 @@ res[0].rhs().full_simplify()._sympy_()
                                 .replace('c1', 'c[1]'))
         #%%
         ydot[3] = u
-        ydot[4] = ydot[4].subs(f, f_solved) - c[0]*dq[0]
-        ydot[5] = ydot[5].subs(f, f_solved) - c[1]*dq[1]
+        ydot[4] = ydot[4].subs(f, f_solved)# - c[0]*dq[0]
+        ydot[5] = ydot[5].subs(f, f_solved)# - c[1]*dq[1]
         # %%
         expression_strings = [str(i).replace('(t)', '')
                                     .replace('sin', 'ca.sin')
@@ -185,6 +185,19 @@ if __name__ == '__main__':
     # res = int_func(x0=[0.1,0.1,0.1,0.1,0.1,0.1], u=[1]*250 + [-1]*500 + [1]*250)['xf']
     model = double_pend_model()
     model.update_params({'c0': 0.01, 'I0': 0.01, 'l0': 0.3, 'a0': 0.15, 'm0': 0.1, 'c1': 0.01, 'I1': 0.01, 'l1': 0.3, 'a1': 0.15, 'm1': 0.1})
+    params = {
+    'c0': 2.5339930154189007e-14,
+    'I0': 0.001848,
+    'l0': 0.3048,
+    'a0': 0.12895,
+    'm0': 0.075,
+    'c1': 9.960299252043114e-15,
+    'I1': 0.0005999,
+    'l1': 0.3,
+    'a1': 0.140322,
+    'm1': 0.077771
+    }
+    model.update_params(params)
     model.subs_params()
     # print(model.get_integrator(np.arange(0, 10, 0.1)))
     f = model.get_pole_placement_func()
@@ -192,29 +205,32 @@ if __name__ == '__main__':
 
     tf = 0.01
     intfunc = model.get_integrator(tf)
-    op_pt = ([0, ca.pi, 0, 0, 0, 0], 0)
-    eigs = np.linspace(-1,-1.5,6)[::-1]*3
+    op_pt = ([0, 0, 0, 0, 0, 0], 0)
+    eigs = np.linspace(-1,-1.1,6)[::-1]*2.3
     K = f(*op_pt, eigs)
-
     A = model.get_A_func()(*op_pt)
     B = model.get_B_func()(*op_pt)
     print(f'feedback gains: {K}')
     print(f'requested eigs: {eigs}')
     print(f'actual eigs:    {np.linalg.eig(A-B@K)[0]}')
-
+    # K = DM([0,0,0,0,0,0]).T
     res = []
-    x = DM([0,np.pi*0.95,0,0,0,0])
-    sp = DM([0,np.pi,0,0,0,0])
+    us = []
+    x = DM([0,np.pi*0.1,0,0,0,0])
+    sp = DM([0,0,0,0,0,0])
     for i in range(1000):
         # print(-K@(x-sp))
-        x = intfunc(x0=x, u=-K@(x-sp))['xf']
+        u = -K@(x-sp)
+        x = intfunc(x0=x, u=u)['xf']
         res.append(x)
+        us.append(np.array(u)[0][0])
 
 
     # grid = np.arange(0, 10, 0.01)
     # intfunc = model.get_integrator(grid)
     # res = intfunc(x0=[0,ca.pi,0,0,0,0], u=0.1)['xf'].T
     plt.plot(np.arange(0, 1000*tf, tf), np.array(res)[:, :, 0], label=['$x$', '$\\theta_1$', '$\\theta_2$', '$\dot x$', '$\dot \\theta_1$', '$\dot \\theta_2$'])
+    plt.plot(np.arange(0, 1000*tf, tf), us, label='$u$')
     plt.legend()
     plt.show()
 # %%
