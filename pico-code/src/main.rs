@@ -2,6 +2,8 @@
 #![no_std]
 #![no_main]
 
+use rp2040_hal::{spi::Spi, gpio::{Pins, FunctionSpi}, pac, Sio};
+use embedded_hal::spi::MODE_0;
 use embedded_hal::prelude::_embedded_hal_blocking_i2c_Read;
 use embedded_hal::prelude::_embedded_hal_blocking_i2c_Write;
 use pio::MovOperation;
@@ -477,8 +479,8 @@ fn main() -> ! {
             vel_idx = 0;
         }
         // led_pin.set_high().unwrap();
-        top_buf[vel_idx] = (float_t - prev_t)/delta_t;
-        end_buf[vel_idx] = (float_e - prev_e)/delta_t;
+        top_buf[vel_idx] = ((float_t - prev_t)/delta_t) * 100_000.0;
+        end_buf[vel_idx] = ((float_e - prev_e)/delta_t) * 100_000.0;
         // VT.store({
         //     let mut acc = 0.0;
         //     for i in 0..VEL_BUF_LEN {
@@ -493,8 +495,8 @@ fn main() -> ! {
         //     }
         //     ((acc/VEL_BUF_LEN as f32)) as i32
         // }, Ordering::Relaxed);
-        VT.store((top_buf.iter().sum::<f32>()/(VEL_BUF_LEN as f32)) as i32, Ordering::Relaxed);
-        VE.store((end_buf.iter().sum::<f32>()/(VEL_BUF_LEN as f32)) as i32, Ordering::Relaxed);
+        VT.store((top_buf.iter().sum::<f32>()/(VEL_BUF_LEN as f32))*100_000.0 as i32, Ordering::Relaxed);
+        VE.store((end_buf.iter().sum::<f32>()/(VEL_BUF_LEN as f32))*100_000.0 as i32, Ordering::Relaxed);
         prev_t = - (t as f32 + 19.0 * (- 1.0 + (t as f32 * RADS_PER_TICK).cos())) * RADS_PER_TICK;
         prev_e = e as f32 * RADS_PER_TICK;
         // timer.get_counter().checked_duration_since(tic).unwrap().to_micros() as u32;
@@ -621,8 +623,8 @@ unsafe fn USBCTRL_IRQ() {
                         final_angle, 
                         final_angle2,
                         CART_VEL.load(Ordering::Relaxed) as f32 / ((10000*SPEED_MULT) as f32),
-                        VT.load(Ordering::Relaxed) as f32,// / 100_000.0, 
-                        VE.load(Ordering::Relaxed) as f32,// / 100_000.0,
+                        VT.load(Ordering::Relaxed) as f32 / 100_000.0, 
+                        VE.load(Ordering::Relaxed) as f32 / 100_000.0,
                         CART_ACC.load(Ordering::Relaxed) as f32 / ((10000*SPEED_MULT) as f32),
                         // AVG_LOOP_TIME.load(Ordering::Relaxed),
                     );
