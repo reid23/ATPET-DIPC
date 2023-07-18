@@ -1,14 +1,15 @@
 #%%
 import sympy as sym
 from sympy import symbols, sin, cos
-from sympy.solvers.ode import dsolve, systems
 from sympy.physics.mechanics import Body, PinJoint, PrismaticJoint, JointsMethod, inertia, dynamicsymbols
 import casadi as ca
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 from casadi import MX, DM, vertcat, vertsplit, Function, integrator, mpower, horzcat, inv
-from time import perf_counter
+# for testing
 from control import lqr
-
+from numpy.random import normal
 
 sym.init_printing()
 sym.physics.mechanics.mechanics_printing()
@@ -46,7 +47,7 @@ class double_pend_model:
         top_pend = Body('P_0', mass=m[0], central_inertia=I0)
         end_pend = Body('P_1', mass=m[1], central_inertia=I1)
 
-        slider = PrismaticJoint('s', track, cart, coordinates=q[0], speeds=dq[0])
+        slider = PrismaticJoint('s', track, cart, coordinates=q[0], speeds=dq[0], parent_axis=track.x, child_axis=cart.x)
 
         rev1 = PinJoint('r_1', cart, top_pend, coordinates=q[1], speeds=dq[1],
                         child_axis=top_pend.z, child_joint_pos=a[0]*top_pend.y,
@@ -69,7 +70,7 @@ class double_pend_model:
         # gravity
         g = 9.800 # in san francisco this is the true value
 
-        cart.apply_force(-track.y*cart.mass*g)
+        cart.apply_force(-cart.y*cart.mass*g)
         top_pend.apply_force(-track.y*top_pend.mass*g)
         end_pend.apply_force(-track.y*end_pend.mass*g)
 
@@ -174,7 +175,47 @@ res[0].rhs().full_simplify()._sympy_()
         print((A@B).shape)
         K = horzcat(0,0,0,0,0,1)@(inv(horzcat(*[(mpower(A, n))@B for n in range(6)]))@sum([mpower(A, (6-n))*a[n] for n in range(7)]))
         return Function('pole_placement_func', [q, u, eigs], [K])
+    @classmethod
+    def rot(self, th):
+        return np.array([
+            [np.cos(th), -np.sin(th)],
+            [np.sin(th),  np.cos(th)]
+        ])
+    def get_xy(self, q):
+        cart = np.array([[q[0]], [0]])
+        top = cart + double_pend_model.rot(q[1])@np.array([[0],[-self.params['l0']]])
+        end = top + double_pend_model.rot(q[1]+q[2])@np.array([[0],[-self.params['l1']]])
+        return np.concatenate([cart, top, end], axis=1)
+    def plot_animation(self, grid, x0, u):
+        res = np.array(self.get_integrator(grid)(x0=x0, u=u)['xf']).T
+        num_frames = len(res)
+        fig, ax = plt.subplots()
 
+        mat, = ax.plot(*self.get_xy(res[0, 0:3].flatten()), marker='o')
+        ax.axhline(color='tab:blue')
+        time_label = ax.text(0, -0.6, '0')
+        def animate(i):
+            mat.set_data(*self.get_xy((res[i%(num_frames+30)-30 if i%(num_frames+30) > 29 else 0, 0:3].flatten())))
+            time_label.set_text(f't={round((i%(num_frames+30)-30)/60, 4)}')
+            return mat
+        ax.axis([-0.5,1.5,-0.75,0.75])
+        self.anim = animation.FuncAnimation(fig, animate, interval=grid[-1], frames=num_frames+30)
+        plt.show()
+    def animate_data(self, q, fig, ax, tf, dt=1/60, color='tab:blue', show=True):
+        q = np.array(q)
+        mat, = ax.plot(*self.get_xy(q[0].flatten()), marker='o', color = color)
+        ax.axhline(color='tab:blue')
+        time_label = ax.text(0, -0.6, '0')
+        num_frames = len(q)
+        def animate(i):
+            mat.set_data(*self.get_xy((q[i%(num_frames+30)-30 if i%(num_frames+30) > 29 else 0].flatten())))
+            time_label.set_text(f't={round((i%(num_frames+30)-30)*dt, 4)}')
+            return mat
+        ax.axis([-0.5,1.5,-0.75,0.75])
+        self.anim = animation.FuncAnimation(fig, animate, interval=tf, frames=num_frames+30)
+        if show: plt.show()
+        return self.anim
+    
     def __str__(self):
         return f'{self.__class__.__name__}(params={self.params})'
     def __repr__(self):
@@ -186,41 +227,47 @@ if __name__ == '__main__':
     model = double_pend_model()
     model.update_params({'c0': 0.01, 'I0': 0.01, 'l0': 0.3, 'a0': 0.15, 'm0': 0.1, 'c1': 0.01, 'I1': 0.01, 'l1': 0.3, 'a1': 0.15, 'm1': 0.1})
     params = {
-    'c0': 2.5339930154189007e-14,
-    'I0': 0.001848,
-    'l0': 0.3048,
-    'a0': 0.12895,
-    'm0': 0.075,
-    'c1': 9.960299252043114e-15,
-    'I1': 0.0005999,
-    'l1': 0.3,
-    'a1': 0.140322,
-    'm1': 0.077771
+        'c0': 2.5339930154189007e-14,
+        'I0': 0.001848,
+        'l0': 0.3048,
+        'a0': 0.12895,
+        'm0': 0.075,
+        'c1': 9.960299252043114e-15,
+        'I1': 0.0005999,
+        'l1': 0.3,
+        'a1': 0.140322,
+        'm1': 0.077771
     }
     model.update_params(params)
     model.subs_params()
+    model.plot_animation(np.arange(0, 10, 1/60), [0, np.pi, 0, 0, 0, 0], [2]*30 + ([-2]*60 + [2]*60)*3 + [-2]*30 + [0]*180)
     # print(model.get_integrator(np.arange(0, 10, 0.1)))
     f = model.get_pole_placement_func()
     # f.generate('gen.c')
 
-    tf = 0.01
+    tf = 0.05
     intfunc = model.get_integrator(tf)
-    op_pt = ([0, 0, 0, 0, 0, 0], 0)
+    op_pt = ([0, ca.pi, ca.pi, 0, 0, 0], 0)
     eigs = np.linspace(-1,-1.1,6)[::-1]*2.3
     K = f(*op_pt, eigs)
     A = model.get_A_func()(*op_pt)
     B = model.get_B_func()(*op_pt)
+    Q = np.diag([1000, 200, 50, 1, 50, 40])
+    R = np.diag([10])
+    K, _, E = lqr(A, B, Q, R)
     print(f'feedback gains: {K}')
     print(f'requested eigs: {eigs}')
-    print(f'actual eigs:    {np.linalg.eig(A-B@K)[0]}')
+    print(f'actual eigs:    {E}')
+    # print(f'actual eigs:    {np.linalg.eig(A-B@K)[0]}')
     # K = DM([0,0,0,0,0,0]).T
     res = []
     us = []
-    x = DM([0,np.pi*0.1,0,0,0,0])
-    sp = DM([0,0,0,0,0,0])
-    for i in range(1000):
+    x = DM([0,np.pi*0.99,np.pi*0.99,0,0,0])
+    sp = DM([0,np.pi,np.pi,0,0,0])
+    nsteps = int(5/tf)
+    for i in range(nsteps):
         # print(-K@(x-sp))
-        u = -K@(x-sp)
+        u = -K@(x-sp+np.concatenate((np.random.normal(0, 0.0015, 4), np.random.normal(0, 0.03, 2))))
         x = intfunc(x0=x, u=u)['xf']
         res.append(x)
         us.append(np.array(u)[0][0])
@@ -229,9 +276,11 @@ if __name__ == '__main__':
     # grid = np.arange(0, 10, 0.01)
     # intfunc = model.get_integrator(grid)
     # res = intfunc(x0=[0,ca.pi,0,0,0,0], u=0.1)['xf'].T
-    plt.plot(np.arange(0, 1000*tf, tf), np.array(res)[:, :, 0], label=['$x$', '$\\theta_1$', '$\\theta_2$', '$\dot x$', '$\dot \\theta_1$', '$\dot \\theta_2$'])
-    plt.plot(np.arange(0, 1000*tf, tf), us, label='$u$')
+    plt.plot(np.arange(0, nsteps*tf, tf), np.array(res)[:, :, 0], label=['$x$', '$\\theta_1$', '$\\theta_2$', '$\dot x$', '$\dot \\theta_1$', '$\dot \\theta_2$'])
+    plt.plot(np.arange(0, nsteps*tf, tf), us, label='$u$')
     plt.legend()
-    plt.show()
+    plt.show(block=False)
+    input('[enter] to close plot: ')
+    plt.close()
 # %%
 # %%

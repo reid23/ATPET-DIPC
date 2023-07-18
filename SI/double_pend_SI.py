@@ -1,10 +1,12 @@
 #%%
+import importlib
 from sim.double_pend import double_pend_model as Model
 from lmfit import Parameters, minimize, fit_report
 from IPython.display import clear_output
 from matplotlib import pyplot as plt
 from multiprocessing.pool import Pool
 import numpy as np
+from time import perf_counter
 #%%
 with open('../data/dp_run1.txt', 'r') as f:
     data = np.array(eval(f.read()))
@@ -25,31 +27,33 @@ for i in model.param_names:
     params.add(i, min=0)
 #* names: c, l, I, a, m
 #* top = 0, end = 1
-params['c0'].set(value=0.0001,     vary=True,  is_init_value=True)
+params['c0'].set(value=0.0000,     vary=False,  is_init_value=True)
 params['l0'].set(value=0.3048,     vary=False, is_init_value=True)
-params['I0'].set(value=0.001848,   vary=False, is_init_value=True)
-params['a0'].set(value=0.12895,    vary=False, is_init_value=True)
-params['m0'].set(value=0.075,      vary=False, is_init_value=True)
+params['I0'].set(value=0.0001848,   vary=False, is_init_value=True)
+params['a0'].set(value=0.12895,    vary=True, is_init_value=True)
+params['m0'].set(value=0.075,      vary=True, is_init_value=True)
 
-params['c1'].set(value=0.0002,     vary=True,  is_init_value=True)
+params['c1'].set(value=0.0000,     vary=False,  is_init_value=True)
 params['l1'].set(value=0.3,        vary=False, is_init_value=True)
 params['I1'].set(value=0.0005999,  vary=False, is_init_value=True)
-params['a1'].set(value=0.140322,   vary=False, is_init_value=True)
-params['m1'].set(value=0.077771,   vary=False, is_init_value=True)
+params['a1'].set(value=0.140322,   vary=True, is_init_value=True)
+params['m1'].set(value=0.077771,   vary=True, is_init_value=True)
 
-scale = np.array([params[i].value for i in model.param_names])
+scale = np.array([params[i].value*0.1 for i in model.param_names])
 
 for i in model.param_names:
-    params[i].set(value=1.0, is_init_value=True)#, min=0.2, max=4.0)
+    params[i].set(value=10, is_init_value=True, min=7, max=13)
 # %%
-run = 1
+run = 0
 t0 = 100
 tf = len(data[run])
 tf = 800
 n = 0
-int_length = 1
-num_int_segments = 10
+int_length = 2
+num_int_segments = 2
+start = 0
 def lmfit_func(params, data):
+    global start
     global n
     model.update_params(dict(zip(model.param_names, [params[i]*scale[idx] for idx, i in enumerate(model.param_names)])))
     model.subs_params()
@@ -68,18 +72,18 @@ def lmfit_func(params, data):
 
     # print(res.shape)
     clear_output(wait=True)
-    print(f'function has been called {n} times')
+    print(f'function has been called {n} times. total runtime: {round(perf_counter()-start)}s')
     n+=1
     return res[:, 1:6] - train[:, 3:8]
-
+start = perf_counter()
 fitted_params = minimize(
     lmfit_func, 
     params, 
     args=(data[run][t0:tf],), 
-    # method = "least_squares",
+    method = "least_squares",
 )
 
-print(fit_report(fitted_params))
+# print(fit_report(fitted_params))
 fitted_params
 # %%
 
@@ -92,7 +96,7 @@ def plot_results(time, data, hat=True, vars=[0,1,1,1,0,0,1]):
     if vars[5]: plt.plot(time, data[:, 5], label='${} \dot \\theta_2$ ($rad \cdot s^{}$)'.format("\hat" if hat else "", '{-1}'), linestyle='dashed' if hat else '-', color='tab:olive')
     if vars[6]: plt.plot(time, data[:, 6], label='$u$ ($m \\cdot s^{-2}$)', color='black')
 #%%
-plotdata = data[run][t0:200]
+plotdata = data[run][t0:tf]
 
 fit_res = dict(zip(model.param_names, [fitted_params.params[i].value*scale[idx] for idx, i in enumerate(model.param_names)]))
 model.update_params(fit_res)
@@ -104,13 +108,20 @@ model.update_params(initial_params)
 model.subs_params()
 initial_param_sim = model.get_integrator(grid=plotdata[:, 0]-plotdata[0, 0])(x0=list(plotdata[0, 2:8]), u=list(plotdata[:, 1]))['xf'].T
 
-plot_results(plotdata[:, 0], plotdata[:, (2,3,4,5,6,7,1)], vars=[0,1,1,1,1,1,1], hat=False)
-plot_results(plotdata[:, 0], sim_data, vars=[0,1,1,1,1,1,0], hat=True)
-plt.plot(plotdata[:, 0][:-1], np.diff(plotdata[:, 3])/np.diff(plotdata[:, 0]))
-# plot_results(plotdata[:, 0], initial_param_sim, vars=[0,1,1,1,0,0,0], hat=False)
+fig, ax = plt.subplots()
+
+anim = model.animate_data(sim_data[:, 0:3], fig, ax, tf=plotdata[-1, 0], dt=np.mean(np.diff(plotdata[:, 0])), color='tab:blue', show=True)
+model.animate_data(plotdata[:, 2:5], fig, ax, tf=plotdata[-1, 0], dt=np.mean(np.diff(plotdata[:, 0])), color='tab:orange', show=True)
+plt.show()
+#%%
+plot_results(plotdata[:, 0], plotdata[:, (2,3,4,5,6,7,1)], vars=[0,1,1,0,0,0,1], hat=False)
+# plot_results(plotdata[:, 0], sim_data, vars=[0,1,1,1,0,0,0], hat=True)
+# plt.plot(plotdata[:, 0][:-1], np.diff(plotdata[:, 3])/np.diff(plotdata[:, 0]))
+plot_results(plotdata[:, 0], initial_param_sim, vars=[0,1,1,0,0,0,0], hat=False)
 plt.xlabel('time (s)')
 # plt.ylabel('$x$ (m), $\\theta$ (rad), u ($m \\times {s^2}$)')
 plt.title('True and Predicted System State vs. Time')
 plt.legend()
 plt.plot()
+print(fit_res)
 # %%

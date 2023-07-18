@@ -117,17 +117,17 @@ class Pendulum:
         print(self.ser.readline())
     
 if __name__ == '__main__':
-    power = -3
-    period = 0.2
+    power = -4
+    period = 0.15
 
     # delay = 0.2
     file = 'data/dp_run2.txt'
-    file = '/dev/stdout'
+    # file = '/dev/stdout'
 
     with open(file, 'a') as f:
         print('[', end='', file = f)
     with Pendulum(file = file) as p:
-        while True: sleep(0.1)
+        # while True: sleep(0.1)
         p.set_K([0,0,0,0,0,0])
         p.set_SP([0.0,0.0,0.0])
         # sleep(10)

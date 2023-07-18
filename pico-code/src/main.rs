@@ -131,9 +131,18 @@ static SP: [AtomicI32; 3] = [AtomicI32::new(0), //cart setpoint  (m)
 
 static AVG_LOOP_TIME: AtomicU32 = AtomicU32::new(0);
 const RADS_PER_TICK: f32 = PI/2048.0;
+const VEL_BUF_LEN: usize = 250;
+
 
 #[entry]
 fn main() -> ! {
+    let mut top_buf: [f32; VEL_BUF_LEN] = [0.0; VEL_BUF_LEN];
+    let mut end_buf: [f32; VEL_BUF_LEN] = [0.0; VEL_BUF_LEN];
+    let mut prev_t: f32 = 0.0;
+    let mut prev_e: f32 = 0.0;
+    let mut vel_idx: usize = 0;
+
+
     // ok I have no clue what any of this next bit does, but 
     // its copied from the examples and it works I guess
     // Grab our singleton objects
@@ -356,9 +365,9 @@ fn main() -> ! {
     // let mut time_buf = [0; 20];
     // let mut counter = 0;
     // let mut acc = 0;
+    delay.delay_ms(50);
     loop {
-        // let tic = timer.get_counter();
-        
+        let tic = timer.get_counter();
         
         let mut top = [0; 2];
         let mut end = [0; 2];
@@ -396,6 +405,7 @@ fn main() -> ! {
         
         TOP.store(t, Ordering::Relaxed);
         END.store(e, Ordering::Relaxed);
+
         
         
         if IN_RESET.load(Ordering::Relaxed) {
@@ -423,12 +433,12 @@ fn main() -> ! {
                 let top_err = - (t as f32 + 19.0 * (- 1.0 + (t as f32 * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes());
                 let end_err = e as f32 * RADS_PER_TICK - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
                 CART_ACC.store(((-10000*SPEED_MULT) as f32 *
-                    ((CART_POS.load(Ordering::Relaxed) as f32 / ((SPEED_MULT*10000) as f32) - f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes())) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
-                    + top_err.wrap_angle() * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
+                ((CART_POS.load(Ordering::Relaxed) as f32 / ((SPEED_MULT*10000) as f32) - f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes())) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
+                + top_err.wrap_angle() * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
                     + end_err.wrap_angle() * f32::from_be_bytes(K[2].load(Ordering::Relaxed).to_be_bytes())
                     + (CART_VEL.load(Ordering::Relaxed) as f32 / ((SPEED_MULT*10000) as f32)) * f32::from_be_bytes(K[3].load(Ordering::Relaxed).to_be_bytes())
-                    + VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[4].load(Ordering::Relaxed).to_be_bytes()) * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32
-                    + VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * f32::from_be_bytes(K[5].load(Ordering::Relaxed).to_be_bytes()) * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32)
+                    + (VT.load(Ordering::Relaxed) as f32 / 100_000.0) * f32::from_be_bytes(K[4].load(Ordering::Relaxed).to_be_bytes())
+                    + (VE.load(Ordering::Relaxed) as f32 / 100_000.0) * f32::from_be_bytes(K[5].load(Ordering::Relaxed).to_be_bytes()))
                 ) as i32, Ordering::Relaxed); //calibrated values for 0, -1, 1
             }, //     VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32
             2 => {// home
@@ -455,7 +465,39 @@ fn main() -> ! {
             }
             _ => {}
         }
-        // time_buf[counter] = timer.get_counter().checked_duration_since(tic).unwrap().to_micros() as u32;
+        // now calculate velocity
+        let delta_t = timer.get_counter().checked_duration_since(tic).unwrap().to_nanos() as f32 / 10_000.0;
+        // let tic = timer.get_counter();
+    
+        let float_t =  - (t as f32 + 19.0 * (- 1.0 + (t as f32 * RADS_PER_TICK).cos())) * RADS_PER_TICK;
+        let float_e = e as f32 * RADS_PER_TICK;
+    
+        vel_idx += 1;
+        if vel_idx >= VEL_BUF_LEN {
+            vel_idx = 0;
+        }
+        // led_pin.set_high().unwrap();
+        top_buf[vel_idx] = (float_t - prev_t)/delta_t;
+        end_buf[vel_idx] = (float_e - prev_e)/delta_t;
+        // VT.store({
+        //     let mut acc = 0.0;
+        //     for i in 0..VEL_BUF_LEN {
+        //         acc += top_buf[i];
+        //     }
+        //     ((acc/VEL_BUF_LEN as f32)) as i32
+        // }, Ordering::Relaxed);
+        // VE.store({
+        //     let mut acc = 0.0;
+        //     for i in 0..VEL_BUF_LEN {
+        //         acc += end_buf[i];
+        //     }
+        //     ((acc/VEL_BUF_LEN as f32)) as i32
+        // }, Ordering::Relaxed);
+        VT.store((top_buf.iter().sum::<f32>()/(VEL_BUF_LEN as f32)) as i32, Ordering::Relaxed);
+        VE.store((end_buf.iter().sum::<f32>()/(VEL_BUF_LEN as f32)) as i32, Ordering::Relaxed);
+        prev_t = - (t as f32 + 19.0 * (- 1.0 + (t as f32 * RADS_PER_TICK).cos())) * RADS_PER_TICK;
+        prev_e = e as f32 * RADS_PER_TICK;
+        // timer.get_counter().checked_duration_since(tic).unwrap().to_micros() as u32;
         // counter += 1;
         // if counter >= 20 { counter = 0; }
         
@@ -579,8 +621,8 @@ unsafe fn USBCTRL_IRQ() {
                         final_angle, 
                         final_angle2,
                         CART_VEL.load(Ordering::Relaxed) as f32 / ((10000*SPEED_MULT) as f32),
-                        VT.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32, 
-                        VE.load(Ordering::Relaxed) as f32 * RADS_PER_TICK * (200_000/(STEPPER_VELOCITY_UPDATE_TIME)) as f32,
+                        VT.load(Ordering::Relaxed) as f32,// / 100_000.0, 
+                        VE.load(Ordering::Relaxed) as f32,// / 100_000.0,
                         CART_ACC.load(Ordering::Relaxed) as f32 / ((10000*SPEED_MULT) as f32),
                         // AVG_LOOP_TIME.load(Ordering::Relaxed),
                     );
@@ -613,28 +655,6 @@ unsafe fn IO_IRQ_BANK0() {
 unsafe fn TIMER_IRQ_0() {
     let alarm0 = ALARM.as_mut().unwrap();
     let _ = alarm0.schedule(STEPPER_VELOCITY_UPDATE_TIME.micros());
-    let c = IRQ_COUNTER.load(Ordering::Relaxed);
-    if c >= 4 {
-        IRQ_COUNTER.store(0, Ordering::Relaxed);
-        let angle = TOP.load(Ordering::Relaxed);
-        let final_angle = (angle as f32 + 19.0*(-1.0+((angle as f32)*RADS_PER_TICK).cos())) as i32;
-        let final_angle2 = END.load(Ordering::Relaxed);
-
-        let vt = OLD_VT.load(Ordering::Relaxed);
-        let final_vt = (vt as f32 + 19.0*(-1.0+((vt as f32)*RADS_PER_TICK).cos())) as i32;
-        let final_ve = OLD_VE.load(Ordering::Relaxed);
-        
-        // let vt = OLD_VT.load(Ordering::Relaxed);
-        OLD_VT.store(TOP.load(Ordering::Relaxed), Ordering::Relaxed);
-
-        // let ve = OLD_VE.load(Ordering::Relaxed);
-        OLD_VE.store(END.load(Ordering::Relaxed), Ordering::Relaxed);
-
-        VT.store( -(final_angle - final_vt), Ordering::Relaxed);
-        VE.store( final_angle2 - final_ve, Ordering::Relaxed);
-    } else {
-        IRQ_COUNTER.store(c+1, Ordering::Relaxed);
-    }
 
     let tx = DELAY_TX.as_mut().unwrap(); 
     let sm = STEP_SM.as_mut().unwrap();
