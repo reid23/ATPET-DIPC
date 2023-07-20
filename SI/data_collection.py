@@ -117,7 +117,7 @@ class Pendulum:
         print(self.ser.readline())
     
 if __name__ == '__main__':
-    power = -4
+    power = -5
     period = 0.15
 
     # delay = 0.2

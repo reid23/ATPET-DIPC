@@ -1,7 +1,7 @@
 #%%
 import sympy as sym
 from sympy import symbols, sin, cos
-from sympy.physics.mechanics import Body, PinJoint, PrismaticJoint, JointsMethod, inertia, dynamicsymbols
+from sympy.physics.mechanics import Body, PinJoint, PrismaticJoint, JointsMethod, inertia, dynamicsymbols, LagrangesMethod
 import casadi as ca
 import numpy as np
 import matplotlib.pyplot as plt
@@ -37,7 +37,6 @@ class double_pend_model:
         #* known:
         #* l[0]
         #* m[1]
-        # %%
 
         track = Body('N')
         cart = Body('C', mass=m[2])
@@ -65,62 +64,31 @@ class double_pend_model:
         top_pend.apply_torque(-c[0]*dq[1]*top_pend.z)
         end_pend.apply_torque(-c[1]*dq[2]*end_pend.z, reaction_body=top_pend)
 
-        # %%
 
         # gravity
         g = 9.800 # in san francisco this is the true value
 
-        cart.apply_force(-cart.y*cart.mass*g)
+        # cart.apply_force(-cart.y*cart.mass*g)
         top_pend.apply_force(-track.y*top_pend.mass*g)
         end_pend.apply_force(-track.y*end_pend.mass*g)
 
         # get equations of motion
         method = JointsMethod(track, slider, rev1, rev2)
         method.form_eoms()
-        ydot = method.rhs()
 
-        if not self.use_saved_sage:
-            print(f"""
-# enter into sage:
-q = var('q0 q1 q2 q3 q4 q5')
-var('f u')
-var('m0 m1 m2 l0 l1 a0 a1 I0 I1 c0 c1')
-res = solve([u == ({str(ydot[3]).replace('(t)', '')})], f)
-assert len(res) == 1
-res[0].rhs().full_simplify()._sympy_()
-""")
-            sage_result = input('enter sage result: ')
-        else:
-            with open(self.sage_saved_f_path, 'r') as file:
-                sage_result = file.read()
-        f_solved = eval(sage_result.replace('q0', 'q[0]')
-                                .replace('q1', 'q[1]')
-                                .replace('q2', 'q[2]')
-                                .replace('q3', 'dq[0]')
-                                .replace('q4', 'dq[1]')
-                                .replace('q5', 'dq[2]')
-                                .replace('m0', 'm[0]')
-                                .replace('m1', 'm[1]')
-                                .replace('m2', 'm[2]')
-                                .replace('l0', 'l[0]')
-                                .replace('l1', 'l[1]')
-                                .replace('a0', 'a[0]')
-                                .replace('a1', 'a[1]')
-                                .replace('I0', 'I[0]')
-                                .replace('I1', 'I[1]')
-                                .replace('c0', 'c[0]')
-                                .replace('c1', 'c[1]'))
-        #%%
-        ydot[3] = u
-        ydot[4] = ydot[4].subs(f, f_solved)# - c[0]*dq[0]
-        ydot[5] = ydot[5].subs(f, f_solved)# - c[1]*dq[1]
-        # %%
-        expression_strings = [str(i).replace('(t)', '')
+        M = method.mass_matrix_full
+        F = method.forcing_full
+        M[3,3] = 1
+        M[3,4] = 0
+        M[3,5] = 0
+        F[3] = f
+        ydot = M.LUsolve(F)
+
+        expression_strings = [str(i).replace('f(t)', 'self.u')
+                                    .replace('(t)', '')
                                     .replace('sin', 'ca.sin')
                                     .replace('cos', 'ca.cos')
-                                    .replace('q', 'self.q')
-                                    .replace('u', 'self.u') for i in ydot]
-
+                                    .replace('q', 'self.q') for i in ydot]
         self.q = MX.sym('q', 6)
         self.u = MX.sym('u')
         m2 = 1
@@ -149,9 +117,9 @@ res[0].rhs().full_simplify()._sympy_()
         return Function('A_func', [self.q, self.u], [ca.jacobian(self.ydot_with_params, self.q)])
     def get_B_func(self):
         return Function('B_func', [self.q, self.u], [ca.jacobian(self.ydot_with_params, self.u)])
-    def get_integrator(self, grid):
+    def get_integrator(self, grid, method='rk'):
         ode = {'x': self.q, 'u': self.u, 'ode': self.ydot_with_params}
-        return integrator('int_func', 'rk', ode, 0.0, grid)
+        return integrator('int_func', method, ode, 0.0, grid)
     def get_pole_placement_func(self):
         eigs = symbols('e:6')
         x = symbols('x')
@@ -227,12 +195,12 @@ if __name__ == '__main__':
     model = double_pend_model()
     model.update_params({'c0': 0.01, 'I0': 0.01, 'l0': 0.3, 'a0': 0.15, 'm0': 0.1, 'c1': 0.01, 'I1': 0.01, 'l1': 0.3, 'a1': 0.15, 'm1': 0.1})
     params = {
-        'c0': 2.5339930154189007e-14,
+        'c0': 2.5339930154189007e-5,
         'I0': 0.001848,
         'l0': 0.3048,
         'a0': 0.12895,
-        'm0': 0.075,
-        'c1': 9.960299252043114e-15,
+        'm0': 2.075,
+        'c1': 9.960299252043114e-5,
         'I1': 0.0005999,
         'l1': 0.3,
         'a1': 0.140322,
