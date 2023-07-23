@@ -1,7 +1,8 @@
 #%%
 import sympy as sym
 from sympy import symbols, sin, cos
-from sympy.physics.mechanics import Body, PinJoint, PrismaticJoint, JointsMethod, inertia, dynamicsymbols, LagrangesMethod
+from sympy.physics.mechanics import Body, JointsMethod, inertia, dynamicsymbols, LagrangesMethod
+from sympy.physics.mechanics.joint import WeldJoint, PinJoint, PrismaticJoint
 import casadi as ca
 import numpy as np
 import matplotlib.pyplot as plt
@@ -18,7 +19,7 @@ class double_pend_model:
     def __init__(self, params=None, use_saved_sage=True, sage_saved_f_path='f_solved.txt'):
         self.use_saved_sage = use_saved_sage
         self.sage_saved_f_path = sage_saved_f_path
-        self.param_names = ['c0', 'I0', 'l0', 'a0', 'm0', 'c1', 'I1', 'l1', 'a1', 'm1']
+        self.param_names = ['c0', 'I0', 'l0', 'a0', 'm0', 'c1', 'I1', 'l1', 'a1', 'm1', 'm3']
         #* nice printing version
         # q = dynamicsymbols('q:3')
         # dq = dynamicsymbols('{\dot{q_0}} {\dot{q_1}} {\dot{q_2}}')
@@ -28,7 +29,7 @@ class double_pend_model:
 
         f, u = dynamicsymbols('f u') # not meant to be aggressive
 
-        m = symbols('m:3')
+        m = symbols('m:4')
         l = symbols('l:2')
         a = symbols('a:2')
         I = symbols('I:2')
@@ -41,10 +42,12 @@ class double_pend_model:
         track = Body('N')
         cart = Body('C', mass=m[2])
         # cart.masscenter.set_acc(cart.frame, u*track.x)
-        I0 = inertia(cart.frame, 0, 0, I[0])
-        I1 = inertia(cart.frame, 0, 0, I[1])
+        I0 = inertia(cart.frame, 0, 0, (1/12)*m[0]*(l[0]**2))#I[0])
+        I1 = inertia(cart.frame, 0, 0, (1/6)*m[1]*(a[1]**2))#I[1])
+        
         top_pend = Body('P_0', mass=m[0], central_inertia=I0)
         end_pend = Body('P_1', mass=m[1], central_inertia=I1)
+        encoder  = Body('end', mass=m[3])
 
         slider = PrismaticJoint('s', track, cart, coordinates=q[0], speeds=dq[0], parent_axis=track.x, child_axis=cart.x)
 
@@ -56,8 +59,8 @@ class double_pend_model:
                         child_axis=end_pend.z, parent_joint_pos=-(l[0]-a[0])*top_pend.y,
                         parent_axis=top_pend.z, child_joint_pos=a[1]*end_pend.y)
 
-
-        joints = (rev1, rev2, slider)
+        weld = WeldJoint('w', end_pend, encoder, parent_point=a[1]*end_pend.y)
+        joints = (slider, rev1, rev2, weld)
         bodies = (track, cart, top_pend, end_pend)
 
         cart.apply_force(f*cart.x) # motor
@@ -68,12 +71,13 @@ class double_pend_model:
         # gravity
         g = 9.800 # in san francisco this is the true value
 
-        # cart.apply_force(-cart.y*cart.mass*g)
+        cart.apply_force(-track.y*encoder.mass*g)
         top_pend.apply_force(-track.y*top_pend.mass*g)
         end_pend.apply_force(-track.y*end_pend.mass*g)
 
         # get equations of motion
-        method = JointsMethod(track, slider, rev1, rev2)
+        method = JointsMethod(track, *joints)
+        self.method = method
         method.form_eoms()
 
         M = method.mass_matrix_full
@@ -167,7 +171,7 @@ class double_pend_model:
             time_label.set_text(f't={round((i%(num_frames+30)-30)/60, 4)}')
             return mat
         ax.axis([-0.5,1.5,-0.75,0.75])
-        self.anim = animation.FuncAnimation(fig, animate, interval=grid[-1], frames=num_frames+30)
+        self.anim = animation.FuncAnimation(fig, animate, interval=np.mean(np.diff(grid))*1000, frames=num_frames+30)
         plt.show()
     def animate_data(self, q, fig, ax, tf, dt=1/60, color='tab:blue', show=True):
         q = np.array(q)
@@ -180,7 +184,7 @@ class double_pend_model:
             time_label.set_text(f't={round((i%(num_frames+30)-30)*dt, 4)}')
             return mat
         ax.axis([-0.5,1.5,-0.75,0.75])
-        self.anim = animation.FuncAnimation(fig, animate, interval=tf, frames=num_frames+30)
+        self.anim = animation.FuncAnimation(fig, animate, interval=dt*1000, frames=num_frames+30)
         if show: plt.show()
         return self.anim
     
@@ -204,7 +208,8 @@ if __name__ == '__main__':
         'I1': 0.0005999,
         'l1': 0.3,
         'a1': 0.140322,
-        'm1': 0.077771
+        'm1': 0.077771,
+        'm3': 0.01
     }
     model.update_params(params)
     model.subs_params()
@@ -213,9 +218,9 @@ if __name__ == '__main__':
     f = model.get_pole_placement_func()
     # f.generate('gen.c')
 
-    tf = 0.05
+    tf = 0.01
     intfunc = model.get_integrator(tf)
-    op_pt = ([0, ca.pi, ca.pi, 0, 0, 0], 0)
+    op_pt = ([0, ca.pi, 0, 0, 0, 0], 0)
     eigs = np.linspace(-1,-1.1,6)[::-1]*2.3
     K = f(*op_pt, eigs)
     A = model.get_A_func()(*op_pt)
@@ -230,12 +235,15 @@ if __name__ == '__main__':
     # K = DM([0,0,0,0,0,0]).T
     res = []
     us = []
-    x = DM([0,np.pi*0.99,np.pi*0.99,0,0,0])
-    sp = DM([0,np.pi,np.pi,0,0,0])
+    ubuf = [DM(0.0)]*1
+    x = DM([0.1,np.pi*0.99,0.01,0,0,0])
+    sp = DM([0,np.pi,0,0,0,0])
     nsteps = int(5/tf)
     for i in range(nsteps):
         # print(-K@(x-sp))
-        u = -K@(x-sp+np.concatenate((np.random.normal(0, 0.0015, 4), np.random.normal(0, 0.03, 2))))
+        ubuf.append(-K@(x-sp+np.concatenate((np.random.normal(0, 0.0015, 4), np.random.normal(0, 0.003, 2)))))
+        # print(repr(np.array(ubuf[-1])))
+        u = ubuf.pop(0)
         x = intfunc(x0=x, u=u)['xf']
         res.append(x)
         us.append(np.array(u)[0][0])
@@ -250,5 +258,8 @@ if __name__ == '__main__':
     plt.show(block=False)
     input('[enter] to close plot: ')
     plt.close()
+
+    fig, ax = plt.subplots()
+    model.animate_data(np.array(res)[:, 0:3, 0], fig, ax, tf*nsteps, tf)
 # %%
 # %%
