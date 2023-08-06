@@ -60,12 +60,33 @@ impl GetPeriod for i32{
     }
 }
 
+#[derive(PartialEq, Eq)]
+enum Encoder {
+    TOP = 4020,
+    END = 2714,
+}
 trait AngleWrap{
     fn wrap_angle(&self) -> f32;
 }
 impl AngleWrap for f32 {
     fn wrap_angle(&self) -> f32 {
         (*self+PI).rem_euclid(2.0*PI)-PI
+    }
+}
+trait ToRad{
+    fn to_rad(&self, encoder: Encoder) -> f32;
+}
+impl ToRad for i32 {
+    fn to_rad(&self, encoder: Encoder) -> f32{
+        if encoder == Encoder::TOP {
+            let ticks = (*self-5) as f32;
+            - (ticks + 19.0 * (- 1.0 + (ticks * RADS_PER_TICK).cos())) * RADS_PER_TICK
+        } else if encoder == Encoder::END {
+            let ticks = (*self-5) as f32;
+            ticks * RADS_PER_TICK
+        } else {
+            0.0
+        }
     }
 }
 

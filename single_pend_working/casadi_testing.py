@@ -73,12 +73,12 @@ class controller:
             -c*y[3] + (-9.8*sin(y[1])-f*cos(y[1]))/l
         )
         ode = {'x':y, 'p':f, 'ode': ydot}
-        self.intfunc = integrator('F_i', 'rk', ode, dict(t0=0, tf=self.tstep))
+        self.intfunc = integrator('F_i', 'rk', ode, 0, self.tstep)
         self.solver_opts = {
-            'ipopt.print_level': 0,
-            'ipopt.sb': 'yes',
-            'print_time': 0,
-            'ipopt.linear_solver': 'MA27',
+            # 'ipopt.print_level': 0,
+            # 'ipopt.sb': 'yes',
+            # 'print_time': 0,
+            'ipopt.linear_solver': 'MA57',
         }
         self.x0 = DM(x0)
         self.soln = DM([0.0]*self.nstep)
