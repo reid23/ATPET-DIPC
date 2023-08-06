@@ -2,17 +2,14 @@
 #![no_std]
 #![no_main]
 
-use hal::{spi::Spi, gpio::{Pins, FunctionSpi}, Sio};
-use embedded_hal::spi::MODE_0;
 use embedded_hal::prelude::_embedded_hal_blocking_i2c_Read;
 use embedded_hal::prelude::_embedded_hal_blocking_i2c_Write;
-use pio::MovOperation;
 use rp_pico::entry; // startup function macro
 use rp_pico::hal;
 use embedded_hal::digital::v2::OutputPin;
 use hal::{Timer, pac, prelude::*};
 use hal::gpio::{Pin, PullUpInput, PushPullOutput};
-use hal::pio::{SM1, Running, Interrupt, SM0};
+use hal::pio::{SM1, Running, SM0};
 use hal::gpio::PinState;
 // use hal::prelude::*;
 use hal::timer::Alarm;
@@ -23,17 +20,17 @@ use heapless::String;
 use core::f32::consts::PI;
 use core::fmt::Write;
 // use core::sync::atomic::AtomicU64;
-use embedded_hal::blocking::i2c::{Operation, Transactional}; // I2C HAL traits/types
+ // I2C HAL traits/types
 use embedded_hal::prelude::_embedded_hal_blocking_i2c_WriteRead; // actual i2c func
 use fugit::{RateExtU32, ExtU32}; // for .kHz() and similar
 use panic_halt as _; // make sure program halts on panic (need to mention crate for it to be linked)
 // use panic_abort as _;
 use pac::interrupt;
-use core::sync::atomic::{AtomicI32, AtomicU32, AtomicU16, AtomicU8, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicI32, AtomicU32, AtomicU8, AtomicBool, Ordering};
 use hal::pio::{PIOBuilder, ValidStateMachine, Tx};
 use pio_proc::pio_file;
 use micromath::F32Ext;
-use core::panic::PanicInfo;
+
 
 // const STEPS_PER_MM: i32 = 10; // unused
 const PIO_FREQ: u32 = 5_000_000; // Hz
@@ -41,6 +38,8 @@ const MAX_SPEED: i32 = 5000; // mm/s
 const MAX_ACCELERATION: i32 = 5000; //mm/s^2
 const STEPPER_VELOCITY_UPDATE_TIME: u32 = 10_000; // in us (5 ticks/us, so max (5*this)/19 steps, min speed 0.1/5*this mm/s)
 const SPEED_MULT: i32 = 100;
+const RADS_PER_TICK: f32 = PI/2048.0;
+const VEL_BUF_LEN: usize = 250;
 
 trait GetPeriod{
     fn get_period(&self) -> Result<(PinState, u32), &'static str>;
@@ -79,13 +78,13 @@ trait ToRad{
 impl ToRad for i32 {
     fn to_rad(&self, encoder: Encoder) -> f32{
         if encoder == Encoder::TOP {
-            let ticks = (*self-5) as f32;
-            - (ticks + 19.0 * (- 1.0 + (ticks * RADS_PER_TICK).cos())) * RADS_PER_TICK
+            let ticks = (*self-4018) as f32;
+            return -(ticks + 19.0 * (- 1.0 + (ticks * RADS_PER_TICK).cos())) * RADS_PER_TICK;
         } else if encoder == Encoder::END {
-            let ticks = (*self-5) as f32;
-            ticks * RADS_PER_TICK
+            let ticks = (*self-2696) as f32;
+            return ticks * RADS_PER_TICK;
         } else {
-            0.0
+            return 0.0;
         }
     }
 }
@@ -153,8 +152,6 @@ static SP: [AtomicI32; 3] = [AtomicI32::new(0), //cart setpoint  (m)
                             AtomicI32::new(0)]; //end setpoint (rad)
 
 static AVG_LOOP_TIME: AtomicU32 = AtomicU32::new(0);
-const RADS_PER_TICK: f32 = PI/2048.0;
-const VEL_BUF_LEN: usize = 250;
 
 
 #[entry]
@@ -240,7 +237,7 @@ fn main() -> ! {
     unsafe { USB_SERIAL = Some(serial); }
     
     // make this emulate a usb device
-    let mut usb_dev = UsbDeviceBuilder::new(bus_ref, UsbVidPid(0x16c0, 0x27dd))
+    let usb_dev = UsbDeviceBuilder::new(bus_ref, UsbVidPid(0x16c0, 0x27dd))
         .manufacturer("Reid Dye")
         .product("ATPET Inverted Pendulum")
         .serial_number("0001")
@@ -253,7 +250,7 @@ fn main() -> ! {
 
     // get PIO and state machine for i2c over PIO (since we only have 2 hw i2c drivers)
     // let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
-    let (mut pio1, mut sm0, mut sm1, _, _) = pac.PIO1.split(&mut pac.RESETS);
+    let (mut pio1, sm0, _sm1, _, _) = pac.PIO1.split(&mut pac.RESETS);
 
     
     
@@ -267,7 +264,7 @@ fn main() -> ! {
     let step_pin_id = _step.id().num;
     // Build the pio program and set pin both for set and side set!
     // We are running with the default divider which is 1 (max speed)
-    let (mut step_sm, _, mut tx0) = PIOBuilder::from_program(simple_installed)
+    let (mut step_sm, _, tx0) = PIOBuilder::from_program(simple_installed)
         .set_pins(step_pin_id, 1)
         .clock_divisor_fixed_point(25, 0)
         .build(sm0);
@@ -287,7 +284,7 @@ fn main() -> ! {
     // irq.enable_sm_interrupt(2);
     // unsafe { PIO1 = Some(pio1); }
     // Start state machine
-    let mut step_sm = step_sm.start();
+    let step_sm = step_sm.start();
     // let mut stepcaller_sm = stepcaller_sm.start();
     // setup direction pin
     // step_sm.drain_tx_fifo();
@@ -343,7 +340,7 @@ fn main() -> ! {
     let (mut oldt, mut olde);
 
     let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS);
-    let t0 = timer.get_counter();
+    let _t0 = timer.get_counter();
     let mut alarm0 = timer.alarm_0().unwrap();
     alarm0.schedule(10_000.micros()).unwrap();
     alarm0.enable_interrupt();
@@ -382,8 +379,8 @@ fn main() -> ! {
     end_i2c.write_read(0x36, &[0x01, 0b00001010, 0b10011010], &mut buf);
 
     //set registers to correct thing because they don't auto-increment from here
-    let _ = top_i2c.write_read(0x36, &[0x0Eu8], &mut buf);
-    let _ = end_i2c.write_read(0x36, &[0x0Eu8], &mut buf);
+    // let _ = top_i2c.write_read(0x36, &[0x0Eu8], &mut buf);
+    // let _ = end_i2c.write_read(0x36, &[0x0Eu8], &mut buf);
     
     // let mut time_buf = [0; 20];
     // let mut counter = 0;
@@ -396,8 +393,8 @@ fn main() -> ! {
         let mut end = [0; 2];
 
         // first grab all encoder positions
-        top_i2c.read(0x36, &mut top);
-        end_i2c.read(0x36, &mut end);
+        top_i2c.write_read(0x36, &[0x0Cu8], &mut top);
+        end_i2c.write_read(0x36, &[0x0cu8], &mut end);
 
         // let _ = top_i2c.write_read(0x36, &[0x0Eu8], &mut top);
         // let _ = end_i2c.write_read(0x36, &[0x0Eu8], &mut end);
@@ -453,8 +450,8 @@ fn main() -> ! {
                 //do nothing, we already set power in usb irq
             },
             1 => { //local
-                let top_err = - (t as f32 + 19.0 * (- 1.0 + (t as f32 * RADS_PER_TICK).cos())) * RADS_PER_TICK - f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes());
-                let end_err = e as f32 * RADS_PER_TICK - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
+                let top_err = t.to_rad(Encoder::TOP) - f32::from_be_bytes(SP[1].load(Ordering::Relaxed).to_be_bytes());
+                let end_err = e.to_rad(Encoder::END) - f32::from_be_bytes(SP[2].load(Ordering::Relaxed).to_be_bytes());
                 CART_ACC.store(((-10000*SPEED_MULT) as f32 *
                 ((CART_POS.load(Ordering::Relaxed) as f32 / ((SPEED_MULT*10000) as f32) - f32::from_be_bytes(SP[0].load(Ordering::Relaxed).to_be_bytes())) * f32::from_be_bytes(K[0].load(Ordering::Relaxed).to_be_bytes())
                 + top_err.wrap_angle() * f32::from_be_bytes(K[1].load(Ordering::Relaxed).to_be_bytes())
@@ -489,19 +486,24 @@ fn main() -> ! {
             _ => {}
         }
         // now calculate velocity
-        let delta_t = timer.get_counter().checked_duration_since(tic).unwrap().to_nanos() as f32 / 10_000.0;
+        VT.store(((top_buf.iter().sum::<f32>()/(VEL_BUF_LEN as f32))*100_000.0) as i32, Ordering::Relaxed);
+        VE.store(((end_buf.iter().sum::<f32>()/(VEL_BUF_LEN as f32))*100_000.0) as i32, Ordering::Relaxed);
+        
         // let tic = timer.get_counter();
-    
-        let float_t =  - (t as f32 + 19.0 * (- 1.0 + (t as f32 * RADS_PER_TICK).cos())) * RADS_PER_TICK;
-        let float_e = e as f32 * RADS_PER_TICK;
-    
+        
+        let float_t = t.to_rad(Encoder::TOP);
+        let float_e = e.to_rad(Encoder::END);
+        
         vel_idx += 1;
         if vel_idx >= VEL_BUF_LEN {
             vel_idx = 0;
         }
+        let delta_t = timer.get_counter().checked_duration_since(tic).unwrap().to_nanos() as f32 / 10_000.0;
         // led_pin.set_high().unwrap();
         top_buf[vel_idx] = ((float_t - prev_t)/delta_t) * 100_000.0;
         end_buf[vel_idx] = ((float_e - prev_e)/delta_t) * 100_000.0;
+        prev_t = float_t;
+        prev_e = float_e;
         // VT.store({
         //     let mut acc = 0.0;
         //     for i in 0..VEL_BUF_LEN {
@@ -516,10 +518,6 @@ fn main() -> ! {
         //     }
         //     ((acc/VEL_BUF_LEN as f32)) as i32
         // }, Ordering::Relaxed);
-        VT.store(((top_buf.iter().sum::<f32>()/(VEL_BUF_LEN as f32))*100_000.0) as i32, Ordering::Relaxed);
-        VE.store(((end_buf.iter().sum::<f32>()/(VEL_BUF_LEN as f32))*100_000.0) as i32, Ordering::Relaxed);
-        prev_t = - (t as f32 + 19.0 * (- 1.0 + (t as f32 * RADS_PER_TICK).cos())) * RADS_PER_TICK;
-        prev_e = e as f32 * RADS_PER_TICK;
         // timer.get_counter().checked_duration_since(tic).unwrap().to_micros() as u32;
         // counter += 1;
         // if counter >= 20 { counter = 0; }
@@ -588,7 +586,7 @@ unsafe fn USBCTRL_IRQ() {
                             // *GET_STATUS_FLAG.as_mut().unwrap() = true;
                         },
                         11..=13 => {
-                            SP[(buf[0] as usize-11)].store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed);
+                            SP[buf[0] as usize-11].store(i32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]), Ordering::Relaxed);
                         },
                         28 => {
                             MODE.store(2, Ordering::Relaxed);
@@ -633,16 +631,13 @@ unsafe fn USBCTRL_IRQ() {
                     //     let angle2 = (end - 2206);
                     //     let final_angle2 = (angle2 as f32 + 3.5*(1.0+(PI*(angle2 as f32)/2048.0).cos())) * RADS_PER_TICK;
                     // }
-                    let angle = TOP.load(Ordering::Relaxed) as f32;
-                    let final_angle = - (angle + 19.0*(-1.0+(angle*RADS_PER_TICK).cos())) * RADS_PER_TICK;
-                    let final_angle2 = END.load(Ordering::Relaxed) as f32 * RADS_PER_TICK;
                     // 2206 0
                     // 4247 pi
                     let mut message: String<100> = String::new();
                     let _ = write!(&mut message, "{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}\n", 
                         CART_POS.load(Ordering::Relaxed) as f32 / ((10000*SPEED_MULT) as f32),
-                        final_angle, 
-                        final_angle2,
+                        TOP.load(Ordering::Relaxed).to_rad(Encoder::TOP), 
+                        END.load(Ordering::Relaxed).to_rad(Encoder::END),
                         CART_VEL.load(Ordering::Relaxed) as f32 / ((10000*SPEED_MULT) as f32),
                         VT.load(Ordering::Relaxed) as f32 / 100_000.0, 
                         VE.load(Ordering::Relaxed) as f32 / 100_000.0,
