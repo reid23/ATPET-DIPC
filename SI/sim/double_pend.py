@@ -75,7 +75,7 @@ class double_pend_model:
         # get equations of motion
         method = JointsMethod(track, slider, rev1, rev2)
         method.form_eoms()
-
+        self.method = method
         M = method.mass_matrix_full
         F = method.forcing_full
         M[3,3] = 1
@@ -83,7 +83,7 @@ class double_pend_model:
         M[3,5] = 0
         F[3] = f
         ydot = M.LUsolve(F)
-
+        self.eoms_sympy = ydot
         expression_strings = [str(i).replace('f(t)', 'self.u')
                                     .replace('(t)', '')
                                     .replace('sin', 'ca.sin')
