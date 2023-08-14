@@ -8,7 +8,7 @@ from multiprocessing.pool import Pool
 import numpy as np
 from time import perf_counter
 #%%
-with open('../data/dp_run2.txt', 'r') as f:
+with open('../data/dp_run3.txt', 'r') as f:
     data = np.array(eval(f.read()))
 data[:, 0] = data[:, 0]/1e9 # convert t from ns to s
 # data[:, 1] = data[:, 1]/1e6 # convert power to m/s^2
@@ -35,21 +35,21 @@ params['m0'].set(value=0.075,      vary=True, is_init_value=True)
 
 params['c1'].set(value=0.0000,     vary=True,  is_init_value=True)
 params['l1'].set(value=0.3,        vary=False, is_init_value=True)
-params['I1'].set(value=0.00005,  vary=True, is_init_value=True)
+params['I1'].set(value=0.00005,    vary=True, is_init_value=True)
 params['a1'].set(value=0.140322,   vary=False, is_init_value=True)
-params['m1'].set(value=0.03,   vary=True, is_init_value=True)
+params['m1'].set(value=0.03,       vary=True, is_init_value=True)
 
 scale = np.array([params[i].value*0.1 for i in model.param_names])
 
 for i in model.param_names:
     params[i].set(value=10, is_init_value=True, min=1, max=100)
 # %%
-run = 0
-t0 = 100
+run = 4
+t0 = 500
 tf = len(data[run])
-tf = 800
+tf = 2000
 n = 0
-int_length = 0.5
+int_length = 1
 num_int_segments = 5
 start = 0
 def lmfit_func(params, data):
@@ -66,7 +66,7 @@ def lmfit_func(params, data):
     
     for subset in train:
         res += [intfunc(x0=subset[0, 2:8], u=subset[:, 1])['xf'].T]
-    
+
     res = np.concatenate(res, axis=0)
     train = np.concatenate(train, axis=0)
 
@@ -114,7 +114,7 @@ anim = model.animate_data(sim_data[:, 0:3], fig, ax, tf=plotdata[-1, 0], dt=np.m
 model.animate_data(plotdata[:, 2:5], fig, ax, tf=plotdata[-1, 0], dt=np.mean(np.diff(plotdata[:, 0])), color='tab:orange', show=True)
 plt.show()
 #%%
-plot_results(plotdata[:, 0], plotdata[:, (2,3,4,5,6,7,1)], vars=[1,1,1,0,0,0,1], hat=False)
+plot_results(plotdata[:, 0], plotdata[:, (2,3,4,5,6,7,1)], vars=[1,1,1,1,1,1,1], hat=False)
 plot_results(plotdata[:, 0], sim_data, vars=[1,1,1,0,0,0,0], hat=True)
 # plt.plot(plotdata[:, 0][:-1], np.diff(plotdata[:, 3])/np.diff(plotdata[:, 0]))
 # plot_results(plotdata[:, 0], initial_param_sim, vars=[0,1,1,0,0,0,0], hat=False)

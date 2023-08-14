@@ -56,12 +56,13 @@ class Pendulum:
         while not stop_event.is_set():
             try:
                 ser.write(bytearray([0])+struct.pack('>l', self.pwr))
-                sleep(0.005)
+                # sleep(0.005)
                 self.in_text = str(ser.readline())
                 self.y = np.array(self.in_text[2:-3].split(','), dtype=float)
                 if not file is None: 
                     # print(self.y)
-                    print(*([perf_counter_ns()-self.start, round(self.pwr, 3)]+list(map(lambda x: np.format_float_positional(x, precision=5, trim='k'), self.y))), sep = ',', end='],\n[', file = file)
+                    print('[', end = '', file=file)
+                    print(*([perf_counter_ns()-self.start, round(self.pwr, 3)]+list(map(lambda x: np.format_float_positional(x, precision=5, trim='k'), self.y))), sep = ',', end='],\n', file = file)
             except AttributeError:
                 pass
             except Exception as e:
@@ -117,16 +118,17 @@ class Pendulum:
         print(self.ser.readline())
     
 if __name__ == '__main__':
-    power = -5
-    period = 0.15
+    power = -1
+    period = 0.5
 
     # delay = 0.2
-    file = 'data/dp_run2.txt'
+    file = 'data/dp_run3.txt'
     # file = '/dev/stdout'
 
     with open(file, 'a') as f:
-        print('[', end='', file = f)
-    with Pendulum(file = file) as p:
+        # print('[', end='', file = f)
+        print('\n# Run 3', file=f)
+    with Pendulum(file = file, port='COM3') as p:
         # while True: sleep(0.1)
         p.set_K([0,0,0,0,0,0])
         p.set_SP([0.0,0.0,0.0])
@@ -180,5 +182,5 @@ if __name__ == '__main__':
         # p.set(0)
         # sleep(2)
 
-    with open(file, 'a') as f:
-        print('],', file = f, end = '')
+    # with open(file, 'a') as f:
+    #     print('],', file = f, end = '')
