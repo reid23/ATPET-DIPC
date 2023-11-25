@@ -96,11 +96,11 @@ def get_mpc(tstep=0.1, thoriz=1, compile_nlp=True):
     mpc.set_param(nlpsol_opts = {'ipopt.linear_solver': 'MA27'})
 
     # suppress printing
-    mpc.nlpsol_opts['ipopt.print_level'] = 0
-    mpc.nlpsol_opts['ipopt.sb'] = 'yes'
-    mpc.nlpsol_opts['print_time'] = 0
+    # mpc.nlpsol_opts['ipopt.print_level'] = 0
+    # mpc.nlpsol_opts['ipopt.sb'] = 'yes'
+    # mpc.nlpsol_opts['print_time'] = 0
 
-    mpc.nlpsol_opts['ipopt.linear_solver'] = 'MA27'
+    # mpc.nlpsol_opts['ipopt.linear_solver'] = 'MA27'
 
     # l_term = 10*cos(y1) + 0.1*y0**2 + 0.1*dy[0]**2 + 0.1*dy[1]**2 + 0.3*f**2 # step cost
     # m_term = 10*cos(y1) + 0.1*y0**2 + 0.02*dy[0]**2 + 0.5*dy[1]**2 # terminal state cost
