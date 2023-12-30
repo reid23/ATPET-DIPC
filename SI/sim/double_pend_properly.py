@@ -48,7 +48,7 @@ def construct_eoms():
     # Math: L = KE - PE
 
     KE = (m1 * (dx1[0]**2 + dx1[1]**2))/2      +     (m2 * (dx2[0]**2 + dx2[1]**2))/2
-    RKE = (I1 * q1**2)/2     +     (I2 * (q1+q2)**2)/2
+    RKE = (I1 * diff(q1, t)**2)/2     +     (I2 * diff(q1+q2, t)**2)/2
     PE = m1 * g * x1[1]     +     m2 * g * x2[1]
     L = simplify(KE+RKE) - simplify(PE)
 
@@ -124,10 +124,19 @@ if __name__ == '__main__':
     import scipy as sp
     import matplotlib.pyplot as plt
 
-    A, B, f = get_functions(eoms, [0.2, 0.15, 0.3, 0.1, 0.1, 1, 1, 0.00035, 0.0002])
+    A, B, f = get_functions(eoms, [
+        0.2,      # l1
+        0.15,     # l2
+        0.3,      # lpend
+        0.15,     # m1
+        0.1,      # m2
+        0.001,    # c1
+        0.001,    # c2
+        0.00035,  # I1
+        0.0002    # I2
+    ])
     fun = lambda t, x: f(0, np.array(x).reshape((6, 1))).T
-    # tgrid = np.linspace(0, 10, 100)
-    res = sp.integrate.solve_ivp(fun, [0, 10], np.array([0, 0, 1, 0, -1, 0]), rtol=1e-5, atol=1e-5)
+    res = sp.integrate.solve_ivp(fun, [0, 5], np.array([0, 0, 1, 0, -1, 0]), rtol=1e-5, atol=1e-5)
 
     # plotting stuff
     fig, axs = plt.subplots(3, 2, sharex=True)
