@@ -128,23 +128,27 @@ if __name__ == '__main__':
         0.2,      # l1
         0.15,     # l2
         0.3,      # lpend
-        0.15,     # m1
-        0.1,      # m2
-        0.001,    # c1
-        0.001,    # c2
-        0.00035,  # I1
+        0.09,     # m1
+        0.05,      # m2
+        0.01,    # c1
+        0.01,    # c2
+        0.0003,  # I1
         0.0002    # I2
     ])
     fun = lambda t, x: f(0, np.array(x).reshape((6, 1))).T
     res = sp.integrate.solve_ivp(fun, [0, 5], np.array([0, 0, 1, 0, -1, 0]), rtol=1e-5, atol=1e-5)
-
+    
     # plotting stuff
-    fig, axs = plt.subplots(3, 2, sharex=True)
-    for idx, ax in enumerate(axs.flatten()):
-        ax.plot(res['t'], res['y'][idx], label=['x', '$\\dot x$', '$\\theta_1$', '$\\dot \\theta_1$', '$\\theta_2$', '$\\dot \\theta_2$'][idx])
-        ax.legend()
-    axs[2][0].set_xlabel('time (s)')
-    axs[2][1].set_xlabel('time (s)')
-    # plt.legend()
-    plt.show()
+    if False:
+        fig, axs = plt.subplots(3, 2, sharex=True)
+        for idx, ax in enumerate(axs.flatten()):
+            ax.plot(res['t'], res['y'][idx], label=['x', '$\\dot x$', '$\\theta_1$', '$\\dot \\theta_1$', '$\\theta_2$', '$\\dot \\theta_2$'][idx])
+            ax.legend()
+        axs[2][0].set_xlabel('time (s)')
+        axs[2][1].set_xlabel('time (s)')
+        plt.show()
+
+a, b = A(0, np.zeros((6, 1))), B(0, np.zeros((6, 1)))
+eigs = np.linalg.eigvals(np.hstack([b, a@b, a@a@b, a@a@a@b, a@a@a@a@b, a@a@a@a@a@b]))
+print(*np.round(eigs, 3))
 # %%
