@@ -5,7 +5,7 @@ import numpy as np
 
 params = (0.220451, 0.139185)
 nsteps = 10
-tstep = 0.1
+tstep = 0.01
 tgrid = np.linspace(0, nsteps*tstep, nsteps+1, endpoint=False)
 Q = DM(np.diag([1., 10., 1., 1.]))
 R = DM(np.diag([0.]))

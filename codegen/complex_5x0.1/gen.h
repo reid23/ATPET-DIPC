@@ -36,7 +36,7 @@ int nlp_work(casadi_int *sz_arg, casadi_int* sz_res, casadi_int *sz_iw, casadi_i
 #define nlp_SZ_ARG 2
 #define nlp_SZ_RES 2
 #define nlp_SZ_IW 0
-#define nlp_SZ_W 30
+#define nlp_SZ_W 41
 int nlp_f(const casadi_real** arg, casadi_real** res, casadi_int* iw, casadi_real* w, int mem);
 int nlp_f_alloc_mem(void);
 int nlp_f_init_mem(int mem);
@@ -56,7 +56,7 @@ int nlp_f_work(casadi_int *sz_arg, casadi_int* sz_res, casadi_int *sz_iw, casadi
 #define nlp_f_SZ_ARG 2
 #define nlp_f_SZ_RES 1
 #define nlp_f_SZ_IW 0
-#define nlp_f_SZ_W 30
+#define nlp_f_SZ_W 21
 int nlp_g(const casadi_real** arg, casadi_real** res, casadi_int* iw, casadi_real* w, int mem);
 int nlp_g_alloc_mem(void);
 int nlp_g_init_mem(int mem);
@@ -76,7 +76,7 @@ int nlp_g_work(casadi_int *sz_arg, casadi_int* sz_res, casadi_int *sz_iw, casadi
 #define nlp_g_SZ_ARG 2
 #define nlp_g_SZ_RES 1
 #define nlp_g_SZ_IW 0
-#define nlp_g_SZ_W 9
+#define nlp_g_SZ_W 17
 int nlp_grad(const casadi_real** arg, casadi_real** res, casadi_int* iw, casadi_real* w, int mem);
 int nlp_grad_alloc_mem(void);
 int nlp_grad_init_mem(int mem);
@@ -96,7 +96,7 @@ int nlp_grad_work(casadi_int *sz_arg, casadi_int* sz_res, casadi_int *sz_iw, cas
 #define nlp_grad_SZ_ARG 4
 #define nlp_grad_SZ_RES 4
 #define nlp_grad_SZ_IW 0
-#define nlp_grad_SZ_W 652
+#define nlp_grad_SZ_W 355
 int nlp_grad_f(const casadi_real** arg, casadi_real** res, casadi_int* iw, casadi_real* w, int mem);
 int nlp_grad_f_alloc_mem(void);
 int nlp_grad_f_init_mem(int mem);
@@ -116,7 +116,7 @@ int nlp_grad_f_work(casadi_int *sz_arg, casadi_int* sz_res, casadi_int *sz_iw, c
 #define nlp_grad_f_SZ_ARG 2
 #define nlp_grad_f_SZ_RES 2
 #define nlp_grad_f_SZ_IW 0
-#define nlp_grad_f_SZ_W 490
+#define nlp_grad_f_SZ_W 191
 int nlp_hess_l(const casadi_real** arg, casadi_real** res, casadi_int* iw, casadi_real* w, int mem);
 int nlp_hess_l_alloc_mem(void);
 int nlp_hess_l_init_mem(int mem);
@@ -136,7 +136,7 @@ int nlp_hess_l_work(casadi_int *sz_arg, casadi_int* sz_res, casadi_int *sz_iw, c
 #define nlp_hess_l_SZ_ARG 4
 #define nlp_hess_l_SZ_RES 1
 #define nlp_hess_l_SZ_IW 0
-#define nlp_hess_l_SZ_W 1645
+#define nlp_hess_l_SZ_W 778
 int nlp_jac_g(const casadi_real** arg, casadi_real** res, casadi_int* iw, casadi_real* w, int mem);
 int nlp_jac_g_alloc_mem(void);
 int nlp_jac_g_init_mem(int mem);
@@ -156,7 +156,7 @@ int nlp_jac_g_work(casadi_int *sz_arg, casadi_int* sz_res, casadi_int *sz_iw, ca
 #define nlp_jac_g_SZ_ARG 2
 #define nlp_jac_g_SZ_RES 2
 #define nlp_jac_g_SZ_IW 0
-#define nlp_jac_g_SZ_W 10
+#define nlp_jac_g_SZ_W 39
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
