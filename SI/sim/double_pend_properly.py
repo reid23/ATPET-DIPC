@@ -2,6 +2,7 @@
 import sympy as sym
 from sympy.physics.mechanics import dynamicsymbols
 from sympy import *
+import casadi as ca
 
 def construct_eoms():
     # setup variables
@@ -116,6 +117,25 @@ def get_functions(eoms, params):
     B = lambdify([a, y], Subs(ode.jacobian([a]), *parameters).doit(), cse=True)
     f = lambdify([a, y], Subs(ode,               *parameters).doit(), cse=True)
     return A, B, f
+
+def to_casadi(eoms):
+    params = []
+    for i in eoms['params']:
+        exec(f'{i} = ca.SX.sym("{i}")')
+        params.append(eval(str(i)))
+    exec(f'{eoms["y"]} = ca.SX.sym("{eoms["y"]}", *{eoms["y"].shape})')
+    exec(f'{eoms["u"]} = ca.SX.sym("{eoms["u"]}")')
+    ode = eval(str(eoms['ode']).replace('Matrix', '')
+                               .replace('sin', 'ca.sin')
+                               .replace('cos', 'ca.cos'))
+    ode = ca.vertcat(*[i[0] for i in ode])
+    return {
+        'p': ca.vertcat(*params),
+        'u': eval(str(eoms['u'])),
+        'x': eval(str(eoms['y'])),
+        'ode': ode
+    }
+    
 # %%
 eoms = construct_eoms()
 #%%
@@ -123,26 +143,39 @@ if __name__ == '__main__':
     import numpy as np
     import scipy as sp
     import matplotlib.pyplot as plt
-
-    A, B, f = get_functions(eoms, [
+    from time import perf_counter
+    p = [
         0.2,      # l1
         0.15,     # l2
         0.3,      # lpend
         0.09,     # m1
-        0.05,      # m2
-        0.01,    # c1
-        0.01,    # c2
-        0.0003,  # I1
+        0.05,     # m2
+        0.01,     # c1
+        0.01,     # c2
+        0.00035,  # I1
         0.0002    # I2
-    ])
-    fun = lambda t, x: f(0, np.array(x).reshape((6, 1))).T
-    res = sp.integrate.solve_ivp(fun, [0, 5], np.array([0, 0, 1, 0, -1, 0]), rtol=1e-5, atol=1e-5)
-    
+    ]
+    A, B, f = get_functions(eoms, p)
+    ca_eoms = to_casadi(eoms)
+    x0 = np.array([0, 0, 1, 0, -1, 0])
+    u = 0
+    tgrid = np.linspace(0, 5, 100, dtype=float).flatten().tolist()
+    ca_intfunc = ca.integrator('intfunc', 'cvodes', ca_eoms, 0, tgrid)
+    Zip = perf_counter()
+    fun = lambda t, x: f(u, np.array(x).reshape((6, 1))).T
+    res = sp.integrate.solve_ivp(fun, [0, 5], x0, rtol=1e-8, atol=1e-8)
+    Zap = perf_counter()
+    res2 = ca_intfunc(x0=x0, p=p, u=u)['xf']
+    Zop = perf_counter()
+    print(f'scipy:  {Zap-Zip:.5f}s')
+    print(f'casadi: {Zop-Zap:.5f}s')
     # plotting stuff
-    if False:
+    if True:
         fig, axs = plt.subplots(3, 2, sharex=True)
         for idx, ax in enumerate(axs.flatten()):
-            ax.plot(res['t'], res['y'][idx], label=['x', '$\\dot x$', '$\\theta_1$', '$\\dot \\theta_1$', '$\\theta_2$', '$\\dot \\theta_2$'][idx])
+            label = ['x', '$\\dot x$', '$\\theta_1$', '$\\dot \\theta_1$', '$\\theta_2$', '$\\dot \\theta_2$'][idx]
+            ax.plot(res['t'], res['y'][idx], label=label+' (sp)', color='tab:blue')
+            ax.plot(tgrid, np.array(res2)[idx], label=label+' (ca)', color='tab:orange')
             ax.legend()
         axs[2][0].set_xlabel('time (s)')
         axs[2][1].set_xlabel('time (s)')
