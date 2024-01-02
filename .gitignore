@@ -10,5 +10,5 @@ target/
 .picowgo
 .DS_Store
 data/
-nlp.c
-nlp.so
+*.c
+*.so
