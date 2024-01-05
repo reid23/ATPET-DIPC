@@ -66,11 +66,7 @@ impl AngleWrap for f32 {
         (*self+PI).rem_euclid(2.0*PI)-PI
     }
 }
-impl AngleWrap for f32 {
-    fn wrap_angle(&self) -> f32 {
-        (*self+PI).rem_euclid(2.0*PI)-PI
-    }
-}
+
 // static RAW_TOP: AtomicI32 = AtomicI32::new(0);
 
 
