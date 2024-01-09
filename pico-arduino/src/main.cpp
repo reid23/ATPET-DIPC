@@ -4,13 +4,16 @@
 #include <TMCStepper.h>
 #include <SPI.h>
 
-#define EN_PIN           18 // Enable
+#define VEL_BUF_LEN 20
+#define DRIVER_UPDATE_INTERVAL 500UL // in microseconds
+
+#define EN_PIN           20 // Enable
 // #define DIR_PIN          6  // Direction
 // #define STEP_PIN         5  // Step
-#define CS_PIN           42 // Chip select
-#define MOSI_PIN          66 // Software Master Out Slave In (MOSI)
-#define MISO_PIN          44 // Software Master In Slave Out (MISO)
-#define SCK_PIN           64 // Software Slave Clock (SCK)
+#define CS_PIN            17 // Chip select
+#define MOSI_PIN          19 // Software Master Out Slave In (MOSI)
+#define MISO_PIN          16 // Software Master In Slave Out (MISO)
+#define SCK_PIN           18 // Software Slave Clock (SCK)
 // #define SW_RX            63 // TMC2208/TMC2224 SoftwareSerial receive pin
 // #define SW_TX            40 // TMC2208/TMC2224 SoftwareSerial transmit pin
 #define SERIAL_PORT Serial1 // TMC2208/TMC2224 HardwareSerial port
@@ -22,7 +25,7 @@
                       // Watterott TMC5160 uses 0.075
 
 TMC2208Stepper driver(&SERIAL_PORT, R_SENSE);
-
+const unsigned short angle_bitmask = 0b0011111111111111;
 bool done = true;
 short top = 0;
 short end = 0;
@@ -30,6 +33,8 @@ short oldtop = 0;
 short oldend = 0;
 short toprots = 0; // if it's done more than 32767 revolutions we've got bigger problems
 short endrots = 0;
+short dtop = 0;
+short dend = 0;
 int topvel = 0;
 int endvel = 0;
 int pos = 0;
@@ -37,7 +42,31 @@ int vel = 0;
 int acc = 0;
 unsigned long accsettime = 0;
 int accsetvel = 0;
+
+unsigned long curtime = 0;
+unsigned long oldtime = 0;
+unsigned long last_driver_update = 0;
 // SPISettings settings = SPISettings(14000000, MSBFIRST, SPI_MODE0);
+
+static int velbuftop[VEL_BUF_LEN] = {0};
+static int velbufend[VEL_BUF_LEN] = {0};
+int curveltop = 0;
+int curvelend = 0;
+int velidx = 0;
+void add_vel(int dtop, int dend, unsigned long dt) {
+  int topvel = dtop*(1000000/dt);
+  int endvel = dend*(1000000/dt);
+  curveltop += topvel-velbuftop[velidx];
+  curvelend += endvel-velbufend[velidx];
+  if (velidx >= VEL_BUF_LEN-1) {
+    velidx = 0;
+  } else {
+    velidx++;
+  }
+  velbuftop[velidx] = topvel;
+  velbufend[velidx] = endvel;
+}
+
 void setup() {
   pinMode(EN_PIN, OUTPUT);
   pinMode(CS_PIN, OUTPUT);
@@ -52,8 +81,6 @@ void setup() {
   SPI.setRX(MISO_PIN);
   SPI.setTX(MOSI_PIN);
   SPI.setSCK(SCK_PIN);
-  // SPI.setClockDivider(20);
-  // SPI.setDataMode(SPI_MODE0);
 
   Serial1.setTX(12);
   Serial1.setRX(13);
@@ -75,11 +102,13 @@ void setup() {
   SPI.transfer16(0xFFFF);
   digitalWrite(CS_PIN, HIGH);
 }
+
 union message {
   uint8_t bytes[32];
   int32_t nums[8];
   uint32_t unums[8];
 };
+
 void loop() {
   if (Serial.available()) {
     uint8_t buf[5];
@@ -107,31 +136,41 @@ void loop() {
       driver.VACTUAL(0);
       digitalWrite(EN_PIN, HIGH);
     }
-    
-    digitalWrite(25, !digitalRead(25));
-    
-
   }
   
   oldtop = top;
   oldend = end;
   digitalWrite(CS_PIN, LOW);
-  top = (int16_t)(SPI.transfer16(0xFFFF)&0b0011111111111111);
-  end = (int16_t)(SPI.transfer16(0xFFFF)&0b0011111111111111);
+  top = (short)(SPI.transfer16(0xFFFF) & angle_bitmask);
+  end = (short)(SPI.transfer16(0xFFFF) & angle_bitmask);
   digitalWrite(CS_PIN, HIGH);
+  oldtime = curtime;
+  curtime = micros();
+
   if (done) {
     oldtop = top;
     oldend = end;
     done = false;
   }
-  if (top-oldtop > 1000) { toprots--; } 
-  else if (top-oldtop < -1000) { toprots++; }
+  dtop = top-oldtop;
+  if (dtop > 1000) { toprots--; dtop = oldtop+16384-top; } 
+  else if (dtop < -1000) { toprots++; dtop = top+16384-oldtop; }
   
-  if (end-oldend > 1000) { endrots--; }
-  else if (end-oldend < -1000) {endrots++; }
+  dend = end-oldend;
+  if (dend > 1000) { endrots--; dend = oldend+16384-end; }
+  else if (dend < -1000) { endrots++; dend = end+16384-oldend; }
+
+
+  add_vel(dtop, dend, curtime-oldtime);
+
+  unsigned long notimeissues = micros();
+  pos += ((notimeissues-last_driver_update)*vel)/1000000;
+  if (notimeissues-last_driver_update < DRIVER_UPDATE_INTERVAL) { return; }
+
+  last_driver_update = notimeissues;
 
   if (acc != 0) {
-    vel = accsetvel + ((int)(micros()-accsettime)*acc)/1000000;
+    vel = accsetvel + ((int)(notimeissues-accsettime)*acc)/1000000;
   }
   driver.VACTUAL(vel);
   driver.shaft(vel>0);
