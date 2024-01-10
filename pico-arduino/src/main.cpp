@@ -53,8 +53,6 @@ unsigned long last_driver_update_time = 0;
 int last_driver_update_pos = 0;
 // SPISettings settings = SPISettings(14000000, MSBFIRST, SPIMODE);
 
-unsigned short err;
-
 static int velbuftop[VEL_BUF_LEN] = {0};
 static int velbufend[VEL_BUF_LEN] = {0};
 int curveltop = 0;
@@ -77,14 +75,11 @@ void add_vel(int dtop, int dend, unsigned long dt) {
 void setup() {
   pinMode(EN_PIN, OUTPUT);
   pinMode(CS_PIN, OUTPUT);
-  // pinMode(SCK_PIN, OUTPUT);
-  // pinMode(MOSI_PIN, OUTPUT);
-  // pinMode(MISO_PIN, INPUT_);
 
   pinMode(25, OUTPUT);
   digitalWrite(EN_PIN, LOW);
   digitalWrite(CS_PIN, HIGH);
-  SPISettings settings(1000000, MSBFIRST, SPIMODE);
+  SPISettings settings(5000000, MSBFIRST, SPIMODE);
   SPI.setCS(CS_PIN);
   SPI.setRX(MISO_PIN);
   SPI.setTX(MOSI_PIN);
@@ -93,7 +88,7 @@ void setup() {
   Serial1.setTX(12);
   Serial1.setRX(13);
   
-  Serial1.begin();
+  Serial1.begin(500000);
   Serial.begin();
   driver.begin();
 
@@ -106,25 +101,21 @@ void setup() {
 
   SPI.begin();
   SPI.beginTransaction(settings);
-  //clear error flag twice
-  delayMicroseconds(1);
+  //clear error flag
   digitalWrite(CS_PIN, LOW);
-  err = SPI.transfer16(clear_errors);
+  SPI.transfer16(clear_errors);
   SPI.transfer16(clear_errors);
   digitalWrite(CS_PIN, HIGH);
   delayMicroseconds(1);
-  // digitalWrite(CS_PIN, LOW);
-  // SPI.transfer16(clear_errors);
-  // // SPI.transfer16(clear_errors);
-  // digitalWrite(CS_PIN, HIGH);
-  // delayMicroseconds(1);
+  digitalWrite(CS_PIN, LOW);
+  (short)(SPI.transfer16(read_angle) & angle_bitmask);
+  (short)(SPI.transfer16(read_angle) & angle_bitmask);
+  digitalWrite(CS_PIN, HIGH);
+  digitalWrite(CS_PIN, LOW);
+  top = (short)(SPI.transfer16(read_angle) & angle_bitmask);
+  end = (short)(SPI.transfer16(read_angle) & angle_bitmask);
+  digitalWrite(CS_PIN, HIGH);
   SPI.endTransaction();
-  // ask for angle
-  // digitalWrite(CS_PIN, LOW);
-  // SPI.transfer16(0xFFFF);
-  // SPI.transfer16(0xFFFF);
-  // digitalWrite(CS_PIN, HIGH);
-  // delayMicroseconds(1);
 }
 
 union message {
@@ -151,7 +142,7 @@ void loop() {
       msg.nums[7] = endvel;
 
       // Serial.write(msg.bytes, 32);
-      Serial.printf("%d, %d,  %d, %d, %hu, %d, %hu, %d, %hu", micros(), acc, pos, vel, top, topvel, end, endvel, err);
+      Serial.printf("%d, %d,  %d, %d, %d, %d, %d, %d, %d", micros(), acc, pos, vel, (int)top, topvel, (int)end, endvel, (int)(curtime-oldtime));
     } else if (buf[0]==1) {
       acc = 0;
       vel = (int32_t)val1;
@@ -165,57 +156,52 @@ void loop() {
   
   oldtop = top;
   oldend = end;
-  SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPIMODE));
+  // SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPIMODE));
   digitalWrite(CS_PIN, LOW);
-  top = (SPI.transfer16(read_angle));// & angle_bitmask);
-  end = (SPI.transfer16(read_angle));// & angle_bitmask);
-  // top = ((unsigned short)SPI.transfer(0xFF))<<8;
-  // top += (unsigned short)SPI.transfer(0xFF);
-  // end = ((unsigned short)SPI.transfer(0xFF))<<8;
-  // end += (unsigned short)SPI.transfer(0xFF);
+  top = (short)(SPI.transfer16(read_angle) & angle_bitmask);
+  end = (short)(SPI.transfer16(read_angle) & angle_bitmask);
   digitalWrite(CS_PIN, HIGH);
-  SPI.endTransaction();
-  err = 0;
-  if ((top>>14)%2 > 0) {
-    SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPIMODE));
-    digitalWrite(CS_PIN, LOW);
-    err = SPI.transfer16(clear_errors);
-    err = SPI.transfer16(clear_errors);
-    digitalWrite(CS_PIN, HIGH);
-    SPI.endTransaction();
-  }
-  top = top&angle_bitmask;
-  end = end&angle_bitmask;
-  // delayMicroseconds(1);
+  // SPI.endTransaction();
+
+  // if ((top>>14)%2 > 0) {
+  //   SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPIMODE));
+  //   digitalWrite(CS_PIN, LOW);
+  //   SPI.transfer16(clear_errors);
+  //   SPI.transfer16(clear_errors);
+  //   digitalWrite(CS_PIN, HIGH);
+  //   SPI.endTransaction();
+  // }
   oldtime = curtime;
   curtime = micros();
 
-  // if (done) {
-  //   oldtop = top;
-  //   oldend = end;
-  //   done = false;
-  // }
-  // dtop = top-oldtop;
-  // if (dtop > 1000) { toprots--; dtop = oldtop+16384-top; } 
-  // else if (dtop < -1000) { toprots++; dtop = top+16384-oldtop; }
+  if (done) {
+    oldtop = top;
+    oldend = end;
+    done = false;
+  }
+  dtop = top-oldtop;
+  if (dtop > 1000) { toprots--; dtop = oldtop+16384-top; } 
+  else if (dtop < -1000) { toprots++; dtop = top+16384-oldtop; }
   
-  // dend = end-oldend;
-  // if (dend > 1000) { endrots--; dend = oldend+16384-end; }
-  // else if (dend < -1000) { endrots++; dend = end+16384-oldend; }
+  dend = end-oldend;
+  if (dend > 1000) { endrots--; dend = oldend+16384-end; }
+  else if (dend < -1000) { endrots++; dend = end+16384-oldend; }
 
 
-  // add_vel(dtop, dend, curtime-oldtime);
+  add_vel((int)dtop, (int)dend, curtime-oldtime);
 
   unsigned long notimeissues = micros();
-  pos = last_driver_update_pos + ((int)(notimeissues-last_driver_update_time)*vel)/1000000;
+  pos = last_driver_update_pos + ((int)(notimeissues-last_driver_update_time)*vel)/1000000; //todo: figure out why this divide is too much
   if (notimeissues-last_driver_update_time < DRIVER_UPDATE_INTERVAL) { return; }
   
   last_driver_update_time = notimeissues;
   last_driver_update_pos = pos;
+  bool dir = vel>0;
   if (acc != 0) {
     vel = accsetvel + ((int)(notimeissues-accsettime)*acc)/1000000;
   }
-
+  if (dir != (vel>0)) {
+    driver.shaft(vel>0);
+  }
   driver.VACTUAL(vel);
-  driver.shaft(vel>0);
 }
