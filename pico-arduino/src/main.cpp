@@ -7,6 +7,8 @@
 #define VEL_BUF_LEN 20
 #define DRIVER_UPDATE_INTERVAL 500UL // in microseconds
 
+#define SPIMODE SPI_MODE1
+
 #define EN_PIN           20 // Enable
 // #define DIR_PIN          6  // Direction
 // #define STEP_PIN         5  // Step
@@ -26,9 +28,11 @@
 
 TMC2208Stepper driver(&SERIAL_PORT, R_SENSE);
 const unsigned short angle_bitmask = 0b0011111111111111;
+const unsigned short clear_errors = 0b0100000000000001;
+const unsigned short read_angle = 0xFFFF;
 bool done = true;
-short top = 0;
-short end = 0;
+unsigned short top = 0;
+unsigned short end = 0;
 short oldtop = 0;
 short oldend = 0;
 short toprots = 0; // if it's done more than 32767 revolutions we've got bigger problems
@@ -45,8 +49,11 @@ int accsetvel = 0;
 
 unsigned long curtime = 0;
 unsigned long oldtime = 0;
-unsigned long last_driver_update = 0;
-// SPISettings settings = SPISettings(14000000, MSBFIRST, SPI_MODE0);
+unsigned long last_driver_update_time = 0;
+int last_driver_update_pos = 0;
+// SPISettings settings = SPISettings(14000000, MSBFIRST, SPIMODE);
+
+unsigned short err;
 
 static int velbuftop[VEL_BUF_LEN] = {0};
 static int velbufend[VEL_BUF_LEN] = {0};
@@ -54,29 +61,30 @@ int curveltop = 0;
 int curvelend = 0;
 int velidx = 0;
 void add_vel(int dtop, int dend, unsigned long dt) {
-  int topvel = dtop*(1000000/dt);
-  int endvel = dend*(1000000/dt);
-  curveltop += topvel-velbuftop[velidx];
-  curvelend += endvel-velbufend[velidx];
+  int topnewvel = dtop*(1000000/dt);
+  int endnewvel = dend*(1000000/dt);
+  topvel += topnewvel-velbuftop[velidx];
+  endvel += endnewvel-velbufend[velidx];
   if (velidx >= VEL_BUF_LEN-1) {
     velidx = 0;
   } else {
     velidx++;
   }
-  velbuftop[velidx] = topvel;
-  velbufend[velidx] = endvel;
+  velbuftop[velidx] = topnewvel;
+  velbufend[velidx] = endnewvel;
 }
 
 void setup() {
   pinMode(EN_PIN, OUTPUT);
   pinMode(CS_PIN, OUTPUT);
-  pinMode(SCK_PIN, OUTPUT);
-  pinMode(MOSI_PIN, OUTPUT);
-  pinMode(MISO_PIN, OUTPUT);
+  // pinMode(SCK_PIN, OUTPUT);
+  // pinMode(MOSI_PIN, OUTPUT);
+  // pinMode(MISO_PIN, INPUT_);
 
   pinMode(25, OUTPUT);
   digitalWrite(EN_PIN, LOW);
-  SPISettings settings(1000000, MSBFIRST, SPI_MODE0);
+  digitalWrite(CS_PIN, HIGH);
+  SPISettings settings(1000000, MSBFIRST, SPIMODE);
   SPI.setCS(CS_PIN);
   SPI.setRX(MISO_PIN);
   SPI.setTX(MOSI_PIN);
@@ -97,10 +105,26 @@ void setup() {
   driver.VACTUAL(vel);
 
   SPI.begin();
+  SPI.beginTransaction(settings);
+  //clear error flag twice
+  delayMicroseconds(1);
   digitalWrite(CS_PIN, LOW);
-  SPI.transfer16(0xFFFF);
-  SPI.transfer16(0xFFFF);
+  err = SPI.transfer16(clear_errors);
+  SPI.transfer16(clear_errors);
   digitalWrite(CS_PIN, HIGH);
+  delayMicroseconds(1);
+  // digitalWrite(CS_PIN, LOW);
+  // SPI.transfer16(clear_errors);
+  // // SPI.transfer16(clear_errors);
+  // digitalWrite(CS_PIN, HIGH);
+  // delayMicroseconds(1);
+  SPI.endTransaction();
+  // ask for angle
+  // digitalWrite(CS_PIN, LOW);
+  // SPI.transfer16(0xFFFF);
+  // SPI.transfer16(0xFFFF);
+  // digitalWrite(CS_PIN, HIGH);
+  // delayMicroseconds(1);
 }
 
 union message {
@@ -121,12 +145,13 @@ void loop() {
       msg.nums[1] = acc;
       msg.nums[2] = pos;
       msg.nums[3] = vel;
-      msg.nums[4] = (int)top + (int)toprots*16384;
+      msg.nums[4] = (int)top;// + (int)toprots*16384;
       msg.nums[5] = topvel;
-      msg.nums[6] = (int)end + (int)endrots*16384;
+      msg.nums[6] = (int)end;// + (int)endrots*16384;
       msg.nums[7] = endvel;
 
-      Serial.write(msg.bytes, 32);
+      // Serial.write(msg.bytes, 32);
+      Serial.printf("%d, %d,  %d, %d, %hu, %d, %hu, %d, %hu", micros(), acc, pos, vel, top, topvel, end, endvel, err);
     } else if (buf[0]==1) {
       acc = 0;
       vel = (int32_t)val1;
@@ -140,38 +165,57 @@ void loop() {
   
   oldtop = top;
   oldend = end;
+  SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPIMODE));
   digitalWrite(CS_PIN, LOW);
-  top = (short)(SPI.transfer16(0xFFFF) & angle_bitmask);
-  end = (short)(SPI.transfer16(0xFFFF) & angle_bitmask);
+  top = (SPI.transfer16(read_angle));// & angle_bitmask);
+  end = (SPI.transfer16(read_angle));// & angle_bitmask);
+  // top = ((unsigned short)SPI.transfer(0xFF))<<8;
+  // top += (unsigned short)SPI.transfer(0xFF);
+  // end = ((unsigned short)SPI.transfer(0xFF))<<8;
+  // end += (unsigned short)SPI.transfer(0xFF);
   digitalWrite(CS_PIN, HIGH);
+  SPI.endTransaction();
+  err = 0;
+  if ((top>>14)%2 > 0) {
+    SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPIMODE));
+    digitalWrite(CS_PIN, LOW);
+    err = SPI.transfer16(clear_errors);
+    err = SPI.transfer16(clear_errors);
+    digitalWrite(CS_PIN, HIGH);
+    SPI.endTransaction();
+  }
+  top = top&angle_bitmask;
+  end = end&angle_bitmask;
+  // delayMicroseconds(1);
   oldtime = curtime;
   curtime = micros();
 
-  if (done) {
-    oldtop = top;
-    oldend = end;
-    done = false;
-  }
-  dtop = top-oldtop;
-  if (dtop > 1000) { toprots--; dtop = oldtop+16384-top; } 
-  else if (dtop < -1000) { toprots++; dtop = top+16384-oldtop; }
+  // if (done) {
+  //   oldtop = top;
+  //   oldend = end;
+  //   done = false;
+  // }
+  // dtop = top-oldtop;
+  // if (dtop > 1000) { toprots--; dtop = oldtop+16384-top; } 
+  // else if (dtop < -1000) { toprots++; dtop = top+16384-oldtop; }
   
-  dend = end-oldend;
-  if (dend > 1000) { endrots--; dend = oldend+16384-end; }
-  else if (dend < -1000) { endrots++; dend = end+16384-oldend; }
+  // dend = end-oldend;
+  // if (dend > 1000) { endrots--; dend = oldend+16384-end; }
+  // else if (dend < -1000) { endrots++; dend = end+16384-oldend; }
 
 
-  add_vel(dtop, dend, curtime-oldtime);
+  // add_vel(dtop, dend, curtime-oldtime);
 
   unsigned long notimeissues = micros();
-  pos += ((notimeissues-last_driver_update)*vel)/1000000;
-  if (notimeissues-last_driver_update < DRIVER_UPDATE_INTERVAL) { return; }
-
-  last_driver_update = notimeissues;
-
+  pos = last_driver_update_pos + ((int)(notimeissues-last_driver_update_time)*vel)/1000000;
+  if (notimeissues-last_driver_update_time < DRIVER_UPDATE_INTERVAL) { return; }
+  
+  last_driver_update_time = notimeissues;
+  last_driver_update_pos = pos;
   if (acc != 0) {
     vel = accsetvel + ((int)(notimeissues-accsettime)*acc)/1000000;
   }
+
   driver.VACTUAL(vel);
   driver.shaft(vel>0);
 }
