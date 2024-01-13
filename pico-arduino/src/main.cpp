@@ -3,12 +3,19 @@
 #include <SerialUSB.h>
 #include <TMCStepper.h>
 #include <SPI.h>
+#include "pico/stdlib.h"
+#include "pico/stdlib.h"
+// #include "hardware/pio.h"
+// // Our assembled program:
+// #include "counter.pio.h"
+// #include "hardware/dma.h"
 
-#define VEL_BUF_LEN 20
+#define VEL_BUF_LEN 40
 #define DRIVER_UPDATE_INTERVAL 500UL // in microseconds
 
 #define SPIMODE SPI_MODE1
 
+#define INDEX_PIN 21
 #define EN_PIN           20 // Enable
 // #define DIR_PIN          6  // Direction
 // #define STEP_PIN         5  // Step
@@ -27,40 +34,49 @@
                       // Watterott TMC5160 uses 0.075
 
 TMC2208Stepper driver(&SERIAL_PORT, R_SENSE);
-const unsigned short angle_bitmask = 0b0011111111111111;
-const unsigned short clear_errors = 0b0100000000000001;
-const unsigned short read_angle = 0xFFFF;
+const uint16_t angle_bitmask = 0b0011111111111111;
+const uint16_t clear_errors = 0b0100000000000001;
+const uint16_t read_angle = 0xFFFF;
 bool done = true;
-unsigned short top = 0;
-unsigned short end = 0;
-short oldtop = 0;
-short oldend = 0;
-short toprots = 0; // if it's done more than 32767 revolutions we've got bigger problems
-short endrots = 0;
-short dtop = 0;
-short dend = 0;
-int topvel = 0;
-int endvel = 0;
-int pos = 0;
-int vel = 0;
-int acc = 0;
-unsigned long accsettime = 0;
-int accsetvel = 0;
-
-unsigned long curtime = 0;
-unsigned long oldtime = 0;
-unsigned long last_driver_update_time = 0;
-int last_driver_update_pos = 0;
+int16_t top = 0;
+int16_t end = 0;
+int16_t oldtop = 0;
+int16_t oldend = 0;
+int16_t toprots = 0; // if it's done more than 32767 revolutions we've got bigger problems
+int16_t endrots = 0;
+int16_t dtop = 0;
+int16_t dend = 0;
+int32_t topvel = 0;
+int32_t endvel = 0;
+int32_t pos = 0;
+int64_t finepos = 0;
+int32_t vel = 0;
+int32_t acc = 0;
+uint32_t accsettime = 0;
+int32_t accsetvel = 0;
+int32_t accsetpos = 0;
+uint32_t curtime = 0;
+uint32_t oldtime = 0;
+uint32_t last_driver_update_time = 0;
+int64_t last_driver_update_pos = 0;
+int32_t old_top_full_for_vel = 0;
+int32_t old_end_full_for_vel = 0;
 // SPISettings settings = SPISettings(14000000, MSBFIRST, SPIMODE);
 
-static int velbuftop[VEL_BUF_LEN] = {0};
-static int velbufend[VEL_BUF_LEN] = {0};
-int curveltop = 0;
-int curvelend = 0;
-int velidx = 0;
-void add_vel(int dtop, int dend, unsigned long dt) {
-  int topnewvel = dtop*(1000000/dt);
-  int endnewvel = dend*(1000000/dt);
+static int32_t velbuftop[VEL_BUF_LEN] = {0};
+static int32_t velbufend[VEL_BUF_LEN] = {0};
+
+int32_t curveltop = 0;
+int32_t curvelend = 0;
+int32_t velidx = 0;
+
+// PIO pio = pio0;
+// uint offset = pio_add_program(pio, &counter_program);
+// uint sm = pio_claim_unused_sm(pio, true);
+// counter_program_init(pio, sm, offset, INDEX_PIN);
+void add_vel(int32_t dtop, int32_t dend, uint32_t dt) {
+  int32_t topnewvel = dtop*(int32_t)(1000000/dt);
+  int32_t endnewvel = dend*(int32_t)(1000000/dt);
   topvel += topnewvel-velbuftop[velidx];
   endvel += endnewvel-velbufend[velidx];
   if (velidx >= VEL_BUF_LEN-1) {
@@ -73,13 +89,31 @@ void add_vel(int dtop, int dend, unsigned long dt) {
 }
 
 void setup() {
+  //testing silly
+  // pio_sm_exec(pio, sm, pio_encode_mov(pio_isr, pio_x));
+  // pio_sm_exec(pio, sm, pio_encode_push(false, true));
+  // pos = pio_sm_get(pio, sm);
+
+  // dma_channel_config c = dma_channel_get_default_config(0);
+  // channel_config_set_read_increment(&c, false);
+  // channel_config_set_write_increment(&c, false);
+  // channel_config_set_dreq(&c, pio_get_dreq(pio, sm, false));
+  // dma_channel_configure(0, &c,
+  //   &pos,
+  //   &pio->rxf[sm],
+  //   -1,
+  //   true
+  // );
+
+
+  //end testing silly
   pinMode(EN_PIN, OUTPUT);
   pinMode(CS_PIN, OUTPUT);
 
   pinMode(25, OUTPUT);
   digitalWrite(EN_PIN, LOW);
   digitalWrite(CS_PIN, HIGH);
-  SPISettings settings(5000000, MSBFIRST, SPIMODE);
+  SPISettings settings(1000000, MSBFIRST, SPIMODE);
   SPI.setCS(CS_PIN);
   SPI.setRX(MISO_PIN);
   SPI.setTX(MOSI_PIN);
@@ -88,7 +122,7 @@ void setup() {
   Serial1.setTX(12);
   Serial1.setRX(13);
   
-  Serial1.begin(500000);
+  Serial1.begin(250000);
   Serial.begin();
   driver.begin();
 
@@ -108,14 +142,26 @@ void setup() {
   digitalWrite(CS_PIN, HIGH);
   delayMicroseconds(1);
   digitalWrite(CS_PIN, LOW);
-  (short)(SPI.transfer16(read_angle) & angle_bitmask);
-  (short)(SPI.transfer16(read_angle) & angle_bitmask);
+  (int16_t)(SPI.transfer16(read_angle) & angle_bitmask);
+  (int16_t)(SPI.transfer16(read_angle) & angle_bitmask);
   digitalWrite(CS_PIN, HIGH);
   digitalWrite(CS_PIN, LOW);
-  top = (short)(SPI.transfer16(read_angle) & angle_bitmask);
-  end = (short)(SPI.transfer16(read_angle) & angle_bitmask);
+  top = (int16_t)(SPI.transfer16(read_angle) & angle_bitmask);
+  end = (int16_t)(SPI.transfer16(read_angle) & angle_bitmask);
   digitalWrite(CS_PIN, HIGH);
   SPI.endTransaction();
+}
+
+void clear_error_flag() {
+  digitalWrite(CS_PIN, LOW);
+  SPI.transfer16(clear_errors);
+  SPI.transfer16(clear_errors);
+  digitalWrite(CS_PIN, HIGH);
+  delayMicroseconds(1);
+  digitalWrite(CS_PIN, LOW);
+  (int16_t)(SPI.transfer16(read_angle) & angle_bitmask);
+  (int16_t)(SPI.transfer16(read_angle) & angle_bitmask);
+  digitalWrite(CS_PIN, HIGH);
 }
 
 union message {
@@ -124,53 +170,81 @@ union message {
   uint32_t unums[8];
 };
 
+void setacc(int32_t newacc){
+  if (acc != newacc) {
+    acc = newacc;
+    accsettime = micros();
+    // accsetpos = pos;
+    accsetvel = vel;
+  }
+}
 void loop() {
   if (Serial.available()) {
     uint8_t buf[5];
     Serial.readBytes(buf, 5);
-    uint32_t val1 = (buf[1] << 24) + (buf[2] << 16) + (buf[3] << 8) + buf[4];
+    //* command 0x00 = SET ACCELERATION
     if (buf[0]==0) {
-      acc = (int32_t)val1;
-      message msg;
-      msg.unums[0] = micros();
-      msg.nums[1] = acc;
-      msg.nums[2] = pos;
-      msg.nums[3] = vel;
-      msg.nums[4] = (int)top;// + (int)toprots*16384;
-      msg.nums[5] = topvel;
-      msg.nums[6] = (int)end;// + (int)endrots*16384;
-      msg.nums[7] = endvel;
-
-      // Serial.write(msg.bytes, 32);
-      Serial.printf("%d, %d,  %d, %d, %d, %d, %d, %d, %d", micros(), acc, pos, vel, (int)top, topvel, (int)end, endvel, (int)(curtime-oldtime));
-    } else if (buf[0]==1) {
+      setacc((int32_t)((buf[1] << 24) + (buf[2] << 16) + (buf[3] << 8) + buf[4]));
+    } 
+    //* command 0x01 = SET VELOCITY
+    else if (buf[0]==1) {
       acc = 0;
-      vel = (int32_t)val1;
-    } else if (buf[0]==2) {
+      vel = (int32_t)((buf[1] << 24) + (buf[2] << 16) + (buf[3] << 8) + buf[4]);
+    }
+    //* command 0x02 = STAHP (RESET)
+    else if (buf[0]==2) {
       acc = 0;
       vel = 0;
       driver.VACTUAL(0);
       digitalWrite(EN_PIN, HIGH);
     }
+    //* command 0x03 = CLEAR RESET
+    else if (buf[0]==3) {
+      acc = 0;
+      vel = 0;
+      driver.VACTUAL(0);
+      digitalWrite(EN_PIN, HIGH);
+    }
+    //* command >= 0x04 = NOP
+
+    // respond with state
+    // message msg;
+    // msg.unums[0] = micros();
+    // msg.nums[1] = acc;
+    // msg.nums[2] = pos;
+    // msg.nums[3] = vel;
+    // msg.nums[4] = (int32_t)top + (int32_t)toprots*16384;
+    // msg.nums[5] = topvel/VEL_BUF_LEN;
+    // msg.nums[6] = (int32_t)end + (int32_t)endrots*16384;
+    // msg.nums[7] = endvel/VEL_BUF_LEN;
+    // uint8_t msg[32];
+    // msg[0] = (n >> 24) & 0xFF;
+    // msg[1] = (n >> 16) & 0xFF;
+    // msg[2] = (n >> 8) & 0xFF;
+    // msg[3] = n & 0xFF;
+
+    // Serial.write()
+
+
+    // Serial.write(msg.bytes, 32);
+    Serial.printf("[%u, %d, %d, %d, %d, %d, %d, %d]\n", micros(), acc, pos, vel, (int32_t)top + (int32_t)toprots*16384, topvel/VEL_BUF_LEN, (int32_t)end + (int32_t)endrots*16384, endvel/VEL_BUF_LEN);
   }
   
-  oldtop = top;
-  oldend = end;
   // SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPIMODE));
   digitalWrite(CS_PIN, LOW);
-  top = (short)(SPI.transfer16(read_angle) & angle_bitmask);
-  end = (short)(SPI.transfer16(read_angle) & angle_bitmask);
+  uint16_t topread = SPI.transfer16(read_angle);
+  uint16_t endread = SPI.transfer16(read_angle);
   digitalWrite(CS_PIN, HIGH);
+  if ((topread & 0b0100000000000000) > 0) { clear_error_flag(); return; }
+  if ((endread & 0b0100000000000000) > 0) { clear_error_flag(); return; }
+  oldtop = top;
+  oldend = end;
+  top = (int16_t)(topread & angle_bitmask);
+  end = (int16_t)(endread & angle_bitmask);
   // SPI.endTransaction();
 
-  // if ((top>>14)%2 > 0) {
-  //   SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPIMODE));
-  //   digitalWrite(CS_PIN, LOW);
-  //   SPI.transfer16(clear_errors);
-  //   SPI.transfer16(clear_errors);
-  //   digitalWrite(CS_PIN, HIGH);
-  //   SPI.endTransaction();
-  // }
+  // use previous loop's dt, since SPI encoder data is behind by one loop
+  uint32_t dt = curtime-oldtime;
   oldtime = curtime;
   curtime = micros();
 
@@ -188,20 +262,28 @@ void loop() {
   else if (dend < -1000) { endrots++; dend = end+16384-oldend; }
 
 
-  add_vel((int)dtop, (int)dend, curtime-oldtime);
-
-  unsigned long notimeissues = micros();
-  pos = last_driver_update_pos + ((int)(notimeissues-last_driver_update_time)*vel)/1000000; //todo: figure out why this divide is too much
+  uint32_t notimeissues = micros();
+  finepos = last_driver_update_pos + ((int64_t)(notimeissues-last_driver_update_time)*(int64_t)vel);
+  pos = (int32_t)(finepos/1000000);
   if (notimeissues-last_driver_update_time < DRIVER_UPDATE_INTERVAL) { return; }
   
+  add_vel(
+    (int32_t)top + (int32_t)toprots*16384 - old_top_full_for_vel, 
+    (int32_t)end + (int32_t)endrots*16384 - old_end_full_for_vel,
+    notimeissues-last_driver_update_time
+  );
+  old_top_full_for_vel = (int32_t)top + (int32_t)toprots*16384;
+  old_end_full_for_vel = (int32_t)end + (int32_t)endrots*16384;
+
   last_driver_update_time = notimeissues;
-  last_driver_update_pos = pos;
+  last_driver_update_pos = finepos;
   bool dir = vel>0;
   if (acc != 0) {
-    vel = accsetvel + ((int)(notimeissues-accsettime)*acc)/1000000;
+    vel = accsetvel + ((int32_t)(notimeissues-accsettime)*acc)/1000000;
   }
   if (dir != (vel>0)) {
     driver.shaft(vel>0);
+    delayMicroseconds(20);
   }
   driver.VACTUAL(vel);
 }

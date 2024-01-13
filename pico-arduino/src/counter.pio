@@ -1,0 +1,51 @@
+.program counter
+
+.wrap_target
+
+wait 0 GPIO 21 ; wait for INDEX to go low
+
+jmp PIN plus0 ; if dir pin is high, decrement, else increment
+    x--
+    jmp done0 ; skip increment
+plus0:
+    x++
+done0:
+; mov x, ISR
+
+wait 1 GPIO 21 ; wait for INDEX to go high
+
+jmp PIN plus1 ; if dir pin is low, decrement, else increment
+    x--
+    jmp done1 ; skip increment
+plus1:
+    x++
+done1:
+; mov x, ISR
+.wrap
+
+.program counter2
+
+.wrap_target
+
+in PINS 1
+mov isr x
+jmp x!=y plus0
+
+
+% c-sdk {
+static inline void counter_program_init(PIO pio, uint sm, uint offset) {
+    pio_sm_config c = counter_program_get_default_config(offset);
+
+    // ;Set this pin's GPIO function (connect PIO to the pad)
+    //; pio_gpio_init(pio, pin);
+    sm_config_set_jmp_pin(&c, 21)
+
+    // ;Set the pin direction to output at the PIO
+    //; pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    // ;Load our configuration, and jump to the start of the program
+    pio_sm_init(pio, sm, offset, &c);
+    // ;Set the state machine running
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}
