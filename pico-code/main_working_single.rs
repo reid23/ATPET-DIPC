@@ -14,6 +14,7 @@ use hal::pio::{SM1, Running, Interrupt, SM0};
 use hal::gpio::PinState;
 // use hal::prelude::*;
 use hal::timer::Alarm;
+
 // shorter hal alias
 use usb_device::{class_prelude::*, prelude::*}; // USB device emulation
 use usbd_serial::SerialPort; // more USB stuff

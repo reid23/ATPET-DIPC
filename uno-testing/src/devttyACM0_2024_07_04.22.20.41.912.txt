@@ -1,0 +1,7 @@
+Testing X connection... Error: All HIGH
+Testing Y connection... OK
+Testing Z connection... ErroGH
+ok
+r: All HIok
+ok
+ok

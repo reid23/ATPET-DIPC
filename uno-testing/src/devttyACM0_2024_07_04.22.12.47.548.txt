@@ -1,0 +1,19 @@
+X:0.00 Y:0.00 Z:0.00 E:0.00 Count X:0 Y:0 Z:0
+ok
+Reporting endstop status
+x_min: TRIGGERED
+y_min: TRIGGERED
+z_min: TRIGGERED
+ok
+ok
+ok
+ok
+ok
+ok
+X:0.00 Y:1.00 Z:0.00 E:0.00 Count X:0 Y:80 Z:0
+ok
+ok
+Testing X connection... Error: All HIGH
+Testing Y connection... Error: All HIGH
+Testing Z connection... Error: All HIGH
+ok
