@@ -1,217 +1,162 @@
-#include <Arduino.h>
-#include <SPI.h>
+// #include <Arduino.h>
 
-#define USE_TIMER_1     true
-#define USE_TIMER_2     false
-#include <TimerInterrupt.h>
+#include <TMCStepper.h>
+// #include <Arduino.h>
+// #include "pico/stdlib.h"
+// #include "pico/stdlib.h"
+// #include <SPI.h>
 
-#define TIMER_INTERVAL_US 1000L
+// pins for encoders
+#define CS_PIN_MOTOR 10
+#define RSENSE 0.022F
+#define DIAG_PIN 4
+#define EN_PIN 3
+// #define MOSI_PIN 11
+// #define MISO_PIN 12
+// #define SCK_PIN 13
 
-#define SPIMODE SPI_MODE1
+#define CS_PIN_ENCODER 0
 
-#define CS_PIN            10 // Chip select
-#define MOSI_PIN          11 // Master Out Slave In (MOSI)
-#define MISO_PIN          12 // Master In Slave Out (MISO)
-#define SCK_PIN           13 // Slave Clock (SCK)
-
-const uint16_t angle_bitmask = 0b0011111111111111;
-const uint16_t comp_hi_bitmask = 0b0010000000000;
-const uint16_t comp_lo_bitmask = 0b0001000000000;
-const uint16_t COF_bitmask = 0b0000100000000;
-const uint16_t OCF_bitmask = 0b0000010000000;
-const uint16_t AGC_bitmask = 0b0000001111111;
-
-const uint16_t clear_errors = 0b0100000000000001;
-const uint16_t read_angle = 0b0011111111111111;
-const uint16_t read_mag = 0b1011111111111110;
-const uint16_t read_diag = 0b1011111111111101;
-
-#define TICKS_PER_RAD 2607.5945876176133f
-#define RADS_PER_TICK 0.0003834951969714103f
-
-#define BUFLEN 120
-
-/*
-code to get weights
-```julia
-t = 0:(BUFLEN-1);
-A = [t.^0 t.^1 t.^2];
-weights = ((A'*A)^(-1) * A')[1, :];
-print(weights)
-```
-just a quadratic regression on datapoints distributed evenly in time.
-from standard least squares solution # Math: A^TA\hat{x} = A^T b
-*/
-const float weights[BUFLEN] = {0.0737730321094701, 0.07130694270663133, 0.06887558879191084, 0.0664789703653086, 0.06411708742682462, 0.06178993997645891, 0.059497528014211445, 0.05723985154008225, 0.05501691055407132, 0.05282870505617865, 0.050675235046404234, 0.04855650052474808, 0.04647250149121019, 0.044423237945790554, 0.04240870988848918, 0.04042891731930607, 0.03848386023824123, 0.03657353864529464, 0.03469795254046631, 0.03285710192375624, 0.031050986795164437, 0.02927960715469089, 0.0275429630023356, 0.02584105433809858, 0.02417388116197982, 0.02254144347397931, 0.02094374127409707, 0.019380774562333093, 0.01785254333868736, 0.016359047603159906, 0.014900287355750715, 0.013476262596459766, 0.012086973325287093, 0.010732419542232668, 0.009412601247296516, 0.008127518440478626, 0.006877171121778981, 0.005661559291197611, 0.0044806829487345, 0.0033345420943896413, 0.0022231367281630512, 0.0011464668500547129, 0.00010453246006464356, -0.0009026664418071567, -0.0018751298555607157, -0.0028128577811960057, -0.0037158502187130266, -0.004584107168111799, -0.005417628629392303, -0.006216414602554558, -0.006980465087598538, -0.007709780084524262, -0.008404359593331717, -0.009064203614020945, -0.009689312146591883, -0.010279685191044559, -0.010835322747378973, -0.011356224815595131, -0.011842391395693028, -0.01229382248767269, -0.012710518091534062, -0.013092478207277172, -0.01343970283490202, -0.01375219197440862, -0.014029945625796972, -0.014272963789067047, -0.014481246464218861, -0.014654793651252399, -0.014793605350167688, -0.014897681560964743, -0.014967022283643522, -0.015001627518204025, -0.015001497264646266, -0.014966631522970245, -0.014897030293175975, -0.014792693575263471, -0.014653621369232664, -0.014479813675083608, -0.01427127049281629, -0.01402799182243071, -0.013749977663926896, -0.013437228017304792, -0.01308974288256444, -0.012707522259705811, -0.012290566148728935, -0.01183887454963381, -0.011352447462420423, -0.010831284887088732, -0.010275386823638821, -0.009684753272070634, -0.009059384232384199, -0.008399279704579515, -0.007704439688656528, -0.00697486418461532, -0.006210553192455809, -0.005411506712178077, -0.004577724743782097, -0.003709207287267813, -0.0028059543426352807, -0.0018679659098844725, -0.0008952419890154439, 0.00011221741997186063, 0.001154412317077469, 0.00223134270230127, 0.003343008575643347, 0.004489409937103728, 0.005670546786682301, 0.006886419124379234, 0.008137026950194332, 0.009422370264127705, 0.010742449066179383, 0.01209726335634928, 0.01348681313463751, 0.014911098401043904, 0.016370119155568658, 0.017863875398211576, 0.01939236712897277, 0.020955594347852297, 0.022553557054850015, 0.024186255249966038};
-// const float weights3[BUFLEN] = {0.25104809330746686, 0.2197808207377294, 0.1906479806201323, 0.16358444208494255, 0.13852507426242716, 0.1154047462828531, 0.09415832727648735, 0.07472068637359695, 0.05702669270444883, 0.041011215399310005, 0.02660912358844753, 0.013755286402128291, 0.002384572970619298, -0.007568147575812416, -0.016168006106899835, -0.023480133492376022, -0.029569660601974038, -0.03450171830542676, -0.03834143747246731, -0.04115394897282869, -0.04300438367624369, -0.043957872452445645, -0.04407954617116741, -0.04343453570214201, -0.04208797191510241, -0.040104985679781685, -0.037550707865912775, -0.03449026934322888, -0.030988800981462672, -0.027111433650347516, -0.02292329821961614, -0.01848952555900174, -0.013875246538237185, -0.009145592027055671, -0.004365692895189843, 0.00039931998762693377, 0.005084315751661572, 0.009624163527181429, 0.013953732444453304, 0.018007891633744277, 0.021721510225321317, 0.025029457349451167, 0.02786660213640091, 0.030167813716437952, 0.03186796121982882, 0.032901913776840486, 0.033204540517740355, 0.032710710572795065, 0.031355293072271584, 0.029073157146437323, 0.025799171925559028, 0.021468206539903223, 0.016015130119737764, 0.009374811795328952, 0.0014821206969442002, -0.0077280740451499685, -0.01832090330068592, -0.030361497939397353, -0.04391498883101619, -0.059046506845277236};
-// const float weights1[BUFLEN] = {0.06584699453551911, 0.06417986477725293, 0.06251273501898674, 0.06084560526072055, 0.05917847550245437, 0.05751134574418819, 0.055844215985922, 0.05417708622765582, 0.052509956469389635, 0.050842826711123446, 0.04917569695285726, 0.04750856719459108, 0.04584143743632489, 0.044174307678058716, 0.04250717791979253, 0.04084004816152634, 0.03917291840326016, 0.03750578864499397, 0.035838658886727784, 0.0341715291284616, 0.03250439937019542, 0.030837269611929237, 0.029170139853663048, 0.027503010095396865, 0.025835880337130683, 0.0241687505788645, 0.02250162082059831, 0.02083449106233213, 0.019167361304065947, 0.017500231545799758, 0.015833101787533575, 0.014165972029267393, 0.012498842271001204, 0.010831712512735021, 0.009164582754468839, 0.00749745299620265, 0.0058303232379364675, 0.004163193479670285, 0.002496063721404096, 0.0008289339631379206, -0.0008381957951282687, -0.002505325553394458, -0.004172455311660633, -0.005839585069926823, -0.007506714828193012, -0.009173844586459187, -0.010840974344725376, -0.012508104102991566, -0.014175233861257741, -0.01584236361952393, -0.01750949337779012, -0.019176623136056295, -0.020843752894322484, -0.022510882652588673, -0.02417801241085485, -0.025845142169121038, -0.027512271927387227, -0.029179401685653403, -0.030846531443919592, -0.0325136612021857};
-// const float vweights2[BUFLEN] = {-0.009571655208884177, -0.008709408527458332, -0.007874978249118132, -0.007068364373863574, -0.00628956690169466, -0.0055385858326113865, -0.004815421166613757, -0.00412007290370177, -0.0034525410438754254, -0.002812825587134723, -0.002200926533479665, -0.001616843882910248, -0.0010605776354264736, -0.0005321277910283434, -3.149434971585433e-5, 0.0004413226885109918, 0.0008863233236521941, 0.0013035075557077547, 0.0016928753846776716, 0.002054426810561949, 0.002388161833360581, 0.0026940804530735697, 0.002972182669700919, 0.003222468483242622, 0.003444937893698683, 0.0036395909010691046, 0.0038064275053538797, 0.0039454477065530135, 0.004056651504666506, 0.004140038899694354, 0.004195609891636559, 0.004223364480493125, 0.004223302666264044, 0.004195424448949324, 0.004139729828548957, 0.004056218805062954, 0.003944891378491303, 0.0038057475488340077, 0.003638787316091071, 0.003444010680262493, 0.0032214176413482704, 0.0029710081993484135, 0.002692782354262905, 0.002386740106091755, 0.0020528814548349643, 0.0016912064004925287, 0.0013017149430644519, 0.0008844070825507408, 0.0004392828189513781, -3.365784773363273e-5, -0.0005344149175042778, -0.001062988390360571, -0.0016193782663024986, -0.0022035845453300743, -0.002815607227443291, -0.003455446312642156, -0.004123101800926655, -0.004818573692296803, -0.0055418619867525915, -0.006292966684294021};
-// const int32_t vweightsi[BUFLEN] = {-957, -871, -787, -707, -629, -554, -482, -412, -345, -281, -220, -162, -106, -53, -3, 44, 89, 130, 169, 205, 239, 269, 297, 322, 344, 364, 381, 395, 406, 414, 420, 422, 422, 420, 414, 406, 394, 381, 364, 344, 322, 297, 269, 239, 205, 169, 130, 88, 44, -3, -53, -106, -162, -220, -282, -346, -412, -482, -554, -629};
-// const int32_t vweightsi1[BUFLEN] = {-164, -158, -153, -147, -142, -136, -131, -125, -119, -114, -108, -103, -97, -92, -86, -81, -75, -69, -64, -58, -53, -47, -42, -36, -31, -25, -19, -14, -8, -3, 3, 8, 14, 19, 25, 31, 36, 42, 47, 53, 58, 64, 69, 75, 81, 86, 92, 97, 103, 108, 114, 119, 125, 131, 136, 142, 147, 153, 158, 164};
-
-int32_t topbuf[BUFLEN];
-// int32_t topbuf2[BUFLEN];
-unsigned int topptr = 0; 
+#define STEPS_PER_MM 1.25
+#define USTEPS 64.0
 
 
-int16_t top = 0;
-int16_t end = 0;
-unsigned long tic = 0;
-unsigned long toc = 0;
-bool filterlk = false;
 
-// *2000/1e5 gives ticks/s
-// *rads_per_tick gives rads/s
+#define ACC_UNIT_CONVERSION 0.015270994830222222
+#define VEL_UNIT_CONVERSION 1.3981013333333334
 
-SPISettings settings(10000000, MSBFIRST, SPIMODE);
+#define ENCODER_TICKS 16384
+#define RADS_PER_TICK PI/(ENCODER_TICKS/2)
 
-unsigned long timer = 0;
-unsigned long dt = 0;
-float esttop = 0.0f;
+#define MAX_VEL 160.0
+#define MAX_ACC 20000.0
+#define HOMING_POS 800.0 // position after hitting limit switch
+#define HOMING_SPEED 80.0
+#define HOMING_ACC 500.0
 
-void read_encoders() {
-  SPI.beginTransaction(settings);
-  int32_t top2 = 0;
-  int32_t end2 = 0;
-  digitalWrite(CS_PIN, LOW);
-  top2 += (int32_t)(SPI.transfer16(read_angle) & angle_bitmask);
-  end2 += (int32_t)(SPI.transfer16(read_angle) & angle_bitmask);
-  digitalWrite(CS_PIN, HIGH);
-  SPI.endTransaction();
-  top = (int16_t)(top2 >> 1);
-  end = (int16_t)(end2 >> 1);
-  // each time we add a value,
-  // decrement the pointer.
-  // this way when we read them back, 
-  // we can go in order of index to 
-  // get newest to oldest.
-  while (filterlk==true){}
-  filterlk = true;
-  topbuf[topptr] = (int32_t)top;
-  topptr = topptr==0 ? BUFLEN-1 : topptr-1;
-  filterlk = false;
-}
+
+
+//1111111101110111
+
+//1110111011101110
+
 
 void setup() {
-  timer = micros();
-  pinMode(CS_PIN, OUTPUT);
+  Serial.begin(115200);
 
-  // pinMode(25, OUTPUT);
-  digitalWrite(CS_PIN, HIGH);
-  // SPI.setCS(CS_PIN);
-  // SPI.setRX(MISO_PIN);
-  // SPI.setTX(MOSI_PIN);
-  // SPI.setSCK(SCK_PIN);
+  pinMode(DIAG_PIN, INPUT);
+  pinMode(EN_PIN, OUTPUT);
+  pinMode(CS_PIN_ENCODER, OUTPUT);
+  pinMode(CS_PIN_MOTOR, OUTPUT);
+  digitalWrite(EN_PIN, LOW);
+  digitalWrite(CS_PIN_ENCODER, HIGH);
+  digitalWrite(CS_PIN_MOTOR, HIGH);
 
-  
-  Serial.begin(250000);
+  Serial.print("finished first half!");
+  pinMode(11, OUTPUT);
+  pinMode(12, INPUT);
+  pinMode(13, OUTPUT);
+  TMC5160Stepper motor = TMC5160Stepper(CS_PIN_MOTOR, RSENSE, 11, 12, 13, -1);
+  motor.setSPISpeed(1000000);
 
-  SPI.begin();
-  SPI.beginTransaction(settings);
-  //clear error flag
-  digitalWrite(CS_PIN, LOW);
-  SPI.transfer16(clear_errors);
-  SPI.transfer16(clear_errors);
-  digitalWrite(CS_PIN, HIGH);
-  delayMicroseconds(1);
-  // send read_angle command
-  digitalWrite(CS_PIN, LOW);
-  SPI.transfer16(read_angle);
-  SPI.transfer16(read_angle);
-  digitalWrite(CS_PIN, HIGH);
-  delayMicroseconds(1);
-  // read angle into vars
-  digitalWrite(CS_PIN, LOW);
-  top = (int16_t)(SPI.transfer16(read_angle) & angle_bitmask);
-  end = (int16_t)(SPI.transfer16(read_angle) & angle_bitmask);
-  digitalWrite(CS_PIN, HIGH);
-  SPI.endTransaction();
-  // initialize filter
-  for(int i; i<BUFLEN; i++){
-    topbuf[i]=(int32_t)top;
-  }
-  // kf.init(1);
-  // kf.setMeasurementNoise(100.0);
-  // kf.setProcessNoise(0.000001, 0.00001);
-  // Serial.println(float(top)/2607.43543267f);
-  // kf.set(float(top)/2607.43543267f, 0);
-  // Serial.println("Here!");
-  // ITimer1.init();
-  // ITimer1.attachInterruptInterval(1, read_encoders, 0UL);
-  // ITimer1.setFrequency(5000, read_encoders, 0UL);
-}
+  Serial.println(motor.test_connection());
 
-void loop() {
-  digitalWrite(CS_PIN, LOW);
-  top = (int16_t)(SPI.transfer16(read_angle) & angle_bitmask);
-  end = (int16_t)(SPI.transfer16(read_angle) & angle_bitmask);
-  digitalWrite(CS_PIN, HIGH);
-  Serial.print(top % 100);
-  Serial.print(",");
-  // dt = micros()-timer;
-  // timer = micros();
-  // Serial.print(dt);
-  // Serial.print("n");
-  // Serial.write((byte)(0b00000000));
-  return;
-  // dt = (toc - timer)/1000.0f;
-  // timer = toc;
-  // kf.predict(dt);
-  // esttop = (int16_t)(kf.get()*2607.43543267f);
-  // kf.correct(float(top)/2607.43543267f);
-  while (filterlk==true){} //wait our turn
-  filterlk = true;
-  float topraw = (float)(topbuf[(topptr+1)%BUFLEN])*RADS_PER_TICK;
-  float topavg = 0.0;
-  float toplinear = 0.0;
-  float topcubic = 0.0;
-  float topfilt = 0.0;
-  int32_t topv = 0;
-  int32_t topvlinear = 0;
-  int32_t topvraw = topbuf[(topptr+1)%BUFLEN]-topbuf[topptr];
-  
-  unsigned int idx;
-  for (int i=0; i<BUFLEN; i++) { 
-    idx = (topptr + i + 1) % BUFLEN;
-    topavg += ((float)(topbuf[idx])*RADS_PER_TICK) / (float)(BUFLEN);
-    topfilt += ((float)(topbuf[idx])*RADS_PER_TICK) * weights[i];
-    // toplinear += ((float)(topbuf[idx])*RADS_PER_TICK) * weights1[i];
-    // topcubic += ((float)(topbuf[idx])*RADS_PER_TICK) * weights3[i];
-    // topv += topbuf[idx]*vweightsi[i];
-    // topvlinear += topbuf[idx]*vweightsi1[i];
-  }
-  // for (int i=0; i<BUFLEN; i++) {
-  //   stdev += sq(topbuf[i]-topavg);
+
+  // motor.toff(0);                           //clear status bits in driver
+  digitalWrite(EN_PIN, LOW);                //enable the driver so that we can send the initial register values
+
+  // /*Initial settings for basic SPI command stepper drive no other functions enabled*/ {
+  //   motor.begin();                         // start the tmc library
+
+  //   /* base GCONF settings for bare stepper driver operation*/    {
+  //     motor.recalibrate(0);                //do not recalibrate the z axis
+  //     motor.faststandstill(0);             //fast stand still at 65ms
+  //     motor.en_pwm_mode(0);                //no silent step
+  //     motor.multistep_filt(0);             //normal multistep filtering
+  //     motor.shaft(0);                      //motor direction cw
+  //     motor.small_hysteresis(0);           //step hysteresis set 1/16
+  //     motor.stop_enable(0);                //no stop motion inputs
+  //     motor.direct_mode(0);                //normal driver operation
+  //   }
+
+  //   /* Set operation current limits */
+  //   motor.rms_current(600, 1);    //set Irun and Ihold for the drive
+
+  //   // /* short circuit monitoring */    {
+  //   //   motor.diss2vs(0);                    //driver monitors for short to supply
+  //   //   motor.s2vs_level(6);                 //lower values set drive to be very sensitive to low side voltage swings
+  //   //   motor.diss2g(0);                     //driver to monitor for short to ground
+  //   //   motor.s2g_level(6);                  //lower values set drive to be very sensitive to high side voltage swings
+  //   // }
+
+  //   /* minimum settings to to get a motor moving using SPI commands */{
+  //     motor.tbl(2);                          //set blanking time to 24
+  //     motor.toff(8);                 //pwm off time factor
+  //     // motor.pwm_freq(1);                     //pwm at 35.1kHz
+  //   }
+  //   /* Reseting drive faults and re-enabling drive */ {
+  //     digitalWrite(EN_PIN, HIGH);             //disable drive to clear any start up faults
+  //     delay(1000);                            //give the drive some time to clear faults
+  //     digitalWrite(EN_PIN, LOW);              //re-enable drive, to start loading in parameters
+  //     motor.GSTAT(7);                        //clear gstat faults
+  //   }
   // }
-  // stdev = sqrt(stdev/(BUFLEN-1));
-  filterlk = false;
+  motor.begin();
+	motor.toff(3);
+	motor.rms_current(800);
+	motor.en_pwm_mode(true);
 
-  Serial.print("Top:");
-  Serial.print(topraw*100);
-  Serial.print(",");
-  Serial.print("TopAvg:");
-  Serial.print(topavg*100);
-  Serial.print(",");
-  // Serial.print("TopLinear:");
-  // Serial.print(toplinear*100);
-  // Serial.print(",");
-  // Serial.print("TopCubic:");
-  // Serial.print(topcubic*100);
-  // Serial.print(",");
-  Serial.print("TopFilt:");
-  Serial.print(topfilt*100);
-  Serial.print(",");  
-  // Serial.print("TopVelFilt:");
-  // Serial.print(topv);
-  // Serial.print(",");
-  // Serial.print("TopVelLinear:");
-  // Serial.print(topvlinear);
-  // Serial.print(",");
-  Serial.print("TopVelRaw:");
-  Serial.print(topvraw);
-  Serial.print(",");
-  Serial.print("dt:");
-  Serial.print(dt);
-  Serial.println("");
+	motor.a1(1000);
+	motor.v1(50000);
+	motor.AMAX(500);
+	motor.VMAX(200000);
+	motor.DMAX(700);
+	motor.d1(1400);
+	motor.VSTOP(10);
+	motor.RAMPMODE(0);
+	motor.XTARGET(-51200);
 
+
+	while(true) {
+		delay(1000);
+
+		auto xactual = motor.XACTUAL();
+		auto xtarget = motor.XTARGET();
+
+		char buffer[256];
+		sprintf(buffer, "ioin=%#-10lx xactual=%7ld\n",
+			motor.IOIN(),
+			xactual
+			);
+		Serial.print(buffer);
+    Serial.println(motor.test_connection());
+
+		if (xactual == xtarget) {
+			motor.XTARGET(-xactual);
+		}
+	}  
+  // motor.begin();
+  Serial.print("sd mode: ");
+  Serial.println(motor.sd_mode());
+  motor.en_pwm_mode(0);
+  motor.rms_current(600, 0.5);
+  motor.TZEROWAIT(0);
+  motor.microsteps((uint16_t)(USTEPS));
+  motor.diag0_stall(false);
+  motor.VSTART(10);
+  motor.VSTOP(10);
+  motor.XACTUAL(0);
+  motor.VMAX(0);
+  motor.toff(5);
+  motor.RAMPMODE(1);
+  motor.en_softstop(true);
+  Serial.print("sd mode: ");
+  Serial.println(motor.sd_mode());
+
+  Serial.print("setup done!");
 }
+
+
+void loop() { }
+
+
