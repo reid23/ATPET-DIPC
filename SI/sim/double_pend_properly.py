@@ -96,9 +96,9 @@ def construct_eoms():
         y[1],
         a,
         y[3],
-        eoms[0]-c1*y[3],
+        eoms[0]-c1*tanh(y[3]),
         y[5],
-        eoms[1]-c2*y[5],
+        eoms[1]-c2*tanh(y[5]),
     ]))
 
     return {
@@ -129,7 +129,8 @@ def to_casadi(eoms):
     exec(f'{eoms["u"]} = ca.SX.sym("{eoms["u"]}")')
     ode = eval(str(eoms['ode']).replace('Matrix', '')
                                .replace('sin', 'ca.sin')
-                               .replace('cos', 'ca.cos'))
+                               .replace('cos', 'ca.cos')
+                               .replace('tanh', 'ca.tanh'))
     ode = ca.vertcat(*[i[0] for i in ode])
     return {
         'p': ca.vertcat(*params),
