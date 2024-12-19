@@ -23,9 +23,9 @@ def delay_and_print(dt, ser):
     start = time.perf_counter()
     while time.perf_counter()<start+dt:
         ser.write(bytes([6]))
-        time.sleep(0.01) # wait for buffer to fill
+        time.sleep(0.001) # wait for buffer to fill
         history.append(struct.unpack("<Lffffff", ser.read(7*4)))
-with serial.Serial('usb-Teensyduino_USB_Serial_15749420-if00', baudrate=250000) as ser:
+with serial.Serial('/dev/serial/by-id/usb-Teensyduino_USB_Serial_15749420-if00', baudrate=250000) as ser:
     try:
         while True:
             command = input("command: ")
@@ -45,6 +45,7 @@ with serial.Serial('usb-Teensyduino_USB_Serial_15749420-if00', baudrate=250000) 
                 acc = float(command[1:])
                 dt = 0.25
                 history = []
+                delay_and_print(1, ser)
                 for _ in range(3):
                     ser.write(bytes([0])+struct.pack(">f", acc))
                     delay_and_print(dt, ser)
@@ -55,6 +56,7 @@ with serial.Serial('usb-Teensyduino_USB_Serial_15749420-if00', baudrate=250000) 
                     ser.write(bytes([0])+struct.pack(">f", acc))
                     delay_and_print(dt, ser)
                 ser.write(bytes([5]))
+                delay_and_print(3, ser)
             if command[0] == "k": #* command 0x07 = SET FEEDBACK GAINS
                 cur_setpoint, gains = setpoints[int(command[1:])], K[int(command[1:])]
                 ser.write(bytes([7]))

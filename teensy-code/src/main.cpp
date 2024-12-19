@@ -30,8 +30,8 @@
 
 #define X_OFFSET 3.0*MAX_POS*STEPS_PER_MM*USTEPS
 
-float top_home = 2.0597783333333335 - 0.0028444379568099976;
-float end_home = -2.6163720625 + 0.0011458657681941986;
+float top_home = 2.0597783333333335 - 0.0028444379568099976 - 0.07836713641881943 + 0.004678236320614815 - 0.002071014139801264 - 0.0027606128714978695 + 0.013537393882870674;
+float end_home = -2.6163720625 + 0.0011458657681941986 - 0.010085987858474255 + 0.018963523209095 - 0.0045824237167835236 - 0.0026845387183129787;
 
 const uint16_t angle_bitmask = 0b0011111111111111;
 const uint16_t clear_errors = 0b0100000000000001;
@@ -214,7 +214,7 @@ void tmc_init() {
     motor.XACTUAL(X_OFFSET);
 }
 void setup() {
-  Serial.begin(250000);
+  Serial.begin(115200);
   word command = 0b0100000000000000; // PAR=0 R/W=R
 	command = command | read_angle;
 	//Add a parity bit on the the MSB
@@ -453,6 +453,11 @@ void deal_with_serial() {
     //* command 0x09 = RUN CLOSED LOOP
     else if (cmd==9) {
       mode = Mode::CLOSED_LOOP;
+    }
+    //* command 0x10 = SET ENCODER ZEROS
+    else if (cmd==10) {
+      top_home += state.top;
+      end_home += state.end;
     }
   }
 }
