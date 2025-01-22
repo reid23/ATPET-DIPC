@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 eoms = to_casadi(get_eoms())
 #%%
 dt = 0.01
-thoriz = 3
+thoriz = 0.5
 tgrid = np.arange(0, thoriz, dt).flatten().tolist()
 intfunc = ca.integrator('intfunc', 'rk', eoms, 0, tgrid)
 #%%
@@ -90,6 +90,20 @@ def load_data_new(top_home=2.0597783333333335, end_home=2.6163720625):
 data2 = np.load('../data.npy')
 data2[:, 1] /= 1000.0
 data2[:, 2] /= 1000.0
+data2 = np.load('../../me-c231a/data2.npy')
+data2 = data2[:, 1:]
+data2[:, 0]*=1e6
+
+th1_offset = 0.0014
+th2_offset = 0.0011
+offset = np.array([0., 0., th1_offset, 0., th2_offset, 0.])
+def cope_factor(x):
+    x[2] += th1_offset*(np.cos(x[2]+np.pi)+1)/2
+    x[4] += th2_offset*(np.cos(x[4]+np.pi)+1)/2
+    return x
+for i in range(len(data2)):
+    cope_factor(data2[i, 1:])
+
 data = load_data(data2).astype(np.float64)
 
 offsets = ca.MX.sym('offsets', 2)
@@ -140,12 +154,13 @@ solver = ca.nlpsol('solver', 'ipopt', nlp, {'ipopt.linear_solver': 'ma57'})
 #%%     l1   m1     m2       I2     I1     l2
 x0  = [0.2, 0.08, 0.045, 0.0008, 0.0008, 0.14, 0, 0]
 x0 = [0.152265, 0.150243, 0.1616, 0.00161724, 0.0014427, 0.103731, 0, 0]
+x0 = [0.139628, 0.190044, 0.143263, 0.00267596, 0.0013376, 133049, 0, 0]
 lbx = [0.05, 0.01,  0.02, 0.0001, 0.0001,  0.01, 0, 0]
-ubx = [0.3,  0.2,   0.3,   0.02,   0.02,  0.2, 0, 0]
+ubx = [0.3,  0.3,   0.2,   0.05,   0.05,  0.2, 0, 0]
 fxd = [0.,   0,    0,    0,    0,      0,       0, 0, 0]
 soln = solver(x0=x0, lbx=[x0[i] if fxd[i] else lbx[i] for i in range(len(x0))], ubx=[x0[i] if fxd[i] else ubx[i] for i in range(len(x0))])
 #%%
-plot(np.array(soln['x']).flatten(), 250)
+plot(np.array(soln['x']).flatten(), 00)
 print(soln)
 # %%
 def plot_dataset(file):
@@ -171,7 +186,7 @@ plt.show()
 # top: 6817.5 ticks
 # end: 6259.5 ticks
 params = soln['x'][:-2]
-# params = x0[:-2]
+params = x0[:-2]
 tgrid2 = np.array(list(range(data.shape[1])))*dt
 intfunc2 = ca.integrator('intfunc', 'idas', eoms, 0, tgrid2)
 full_integration_result = intfunc2(x0=data[1:, 0], u=data[0, :], p=full_params(params))['xf']

@@ -1,4 +1,5 @@
 #include <TMCStepper.h>
+#include <EEPROM.h>
 
 // pins for encoders
 #define CS_PIN_MOTOR 10
@@ -23,15 +24,15 @@
 
 #define MAX_POS 800.0
 #define MAX_VEL 5000.0
-#define MAX_ACC 15000.0
+#define MAX_ACC 20000.0
 #define HOMING_POS 800.0 // position after hitting limit switch
 #define HOMING_SPEED 80.0
 #define HOMING_ACC 500.0
 
 #define X_OFFSET 3.0*MAX_POS*STEPS_PER_MM*USTEPS
 
-float top_home = 2.0597783333333335 - 0.0028444379568099976 - 0.07836713641881943 + 0.004678236320614815 - 0.002071014139801264 - 0.0027606128714978695 + 0.013537393882870674;
-float end_home = -2.6163720625 + 0.0011458657681941986 - 0.010085987858474255 + 0.018963523209095 - 0.0045824237167835236 - 0.0026845387183129787;
+float top_home = 1.9822291272403798;
+float end_home = -2.6149389132870287;
 
 const uint16_t angle_bitmask = 0b0011111111111111;
 const uint16_t clear_errors = 0b0100000000000001;
@@ -190,7 +191,7 @@ void tmc_init() {
     // TERN_(SQUARE_WAVE_STEPPING, chopconf.dedge = true);
     motor.CHOPCONF(chopconf.sr);
 
-    motor.rms_current(1800, 0.5);
+    motor.rms_current(2500, 0.5);
     motor.microsteps(USTEPS);
     motor.iholddelay(10);
     motor.TPOWERDOWN(128); // ~2s until driver lowers to hold current
@@ -243,6 +244,13 @@ void setup() {
   update_encoder_data();
   gains.values[0] = 100;
   gains.values[1] = 10;
+
+  // EEPROM.read(0);
+
+  uint32_t top_home_int = (((uint32_t)EEPROM.read(0) << 24) + ((uint32_t)EEPROM.read(1) << 16) + ((uint32_t)EEPROM.read(2) << 8) + (uint32_t)EEPROM.read(3));
+  top_home = *(float*)&top_home_int;
+  uint32_t end_home_int = (((uint32_t)EEPROM.read(4) << 24) + ((uint32_t)EEPROM.read(5) << 16) + ((uint32_t)EEPROM.read(6) << 8) + (uint32_t)EEPROM.read(7));
+  end_home = *(float*)&end_home_int;
   // encoder_timer.begin(update_encoder_data, 500);
 }
 
@@ -458,6 +466,16 @@ void deal_with_serial() {
     else if (cmd==10) {
       top_home += state.top;
       end_home += state.end;
+      uint32_t top_home_int = *(uint32_t*)&top_home;
+      uint32_t end_home_int = *(uint32_t*)&end_home;
+      EEPROM.write(0, (top_home_int >> 24) % 0xFF);
+      EEPROM.write(1, (top_home_int >> 16) % 0xFF);
+      EEPROM.write(2, (top_home_int >>  8) % 0xFF);
+      EEPROM.write(3, (top_home_int >>  0) % 0xFF);
+      EEPROM.write(4, (end_home_int >> 24) % 0xFF);
+      EEPROM.write(5, (end_home_int >> 16) % 0xFF);
+      EEPROM.write(6, (end_home_int >>  8) % 0xFF);
+      EEPROM.write(7, (end_home_int >>  0) % 0xFF);
     }
   }
 }

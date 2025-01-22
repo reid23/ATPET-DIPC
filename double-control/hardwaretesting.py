@@ -1,29 +1,37 @@
-import struct
 import serial
+import struct
 import time
+import control as ct
 import numpy as np
 import matplotlib.pyplot as plt
-setpoints = np.array([
-    [  0.0,   0.0,   0.0,   0.0,   0.0,   0.0],
-    [  0.0,   0.0,   0.0,   0.0, np.pi,   0.0],
-    [  0.0,   0.0, np.pi,   0.0,   0.0,   0.0],
-    [  0.0,   0.0, np.pi,   0.0, np.pi,   0.0],
-]).astype(float)
-K = np.array([
-    [ 3.16228,  3.36727,  -6.22607,  -2.49844,   14.14236,  0.96845], # down down
-    [-3.16228,  3.71965,  29.71956,   4.65688,   123.0737, 15.79952], # down up
-    [-3.16228, -3.80829,  30.75454,   5.26494,  -22.79531,  -0.7553], # up down
-    [ 3.16228,  4.58115, -21.19164, -11.68013, -120.54381, -14.5712], # up up
-]).astype(float)
-# K[:, 0] *= 1000
-# K[:, 1] *= 1000
+from all_settings import SimulatorSettings, FittedModelParameters
+from simulator import Simulator
+s = Simulator(**SimulatorSettings.withopt(model_params=FittedModelParameters))
+op_pt = np.array([0.0, 0.0, np.pi, 0.0, 0.0, 0.0]), np.array([0.0])
+A, B = s.linearContinuousMatrices(*op_pt)
+
+# KNOWN WORKING BELOW
+# Q = np.diag([100, 10, 5, 1, 100, 50])
+# R = np.diag([10])
+
+Q = np.diag([500, 10, 5, 1, 100, 50])
+R = np.diag([10])
+
+
+N = 10
+K, _, _ = ct.lqr(A, B, Q, R)
+K = [K.flatten()]
+setpoints = [op_pt[0]]
+# lqr = lambda t, x: -K@(x-op_pt[0])
+
 cur_setpoint = setpoints[0]
+
 history = []
 def delay_and_print(dt, ser):
     start = time.perf_counter()
     while time.perf_counter()<start+dt:
         ser.write(bytes([6]))
-        time.sleep(0.001) # wait for buffer to fill
+        time.sleep(0.01) # wait for buffer to fill
         history.append(struct.unpack("<Lffffff", ser.read(7*4)))
 with serial.Serial('/dev/serial/by-id/usb-Teensyduino_USB_Serial_15749420-if00', baudrate=250000) as ser:
     try:
@@ -45,7 +53,6 @@ with serial.Serial('/dev/serial/by-id/usb-Teensyduino_USB_Serial_15749420-if00',
                 acc = float(command[1:])
                 dt = 0.25
                 history = []
-                delay_and_print(1, ser)
                 for _ in range(3):
                     ser.write(bytes([0])+struct.pack(">f", acc))
                     delay_and_print(dt, ser)
@@ -56,7 +63,6 @@ with serial.Serial('/dev/serial/by-id/usb-Teensyduino_USB_Serial_15749420-if00',
                     ser.write(bytes([0])+struct.pack(">f", acc))
                     delay_and_print(dt, ser)
                 ser.write(bytes([5]))
-                delay_and_print(3, ser)
             if command[0] == "k": #* command 0x07 = SET FEEDBACK GAINS
                 cur_setpoint, gains = setpoints[int(command[1:])], K[int(command[1:])]
                 ser.write(bytes([7]))
@@ -73,8 +79,6 @@ with serial.Serial('/dev/serial/by-id/usb-Teensyduino_USB_Serial_15749420-if00',
                     ser.write(struct.pack(">f", i))
             if command[0] == "r": #* command 0x09 = RUN CLOSED LOOP
                 ser.write(bytes([9]))
-            if command[0] == "h": #* command 0x10 = ZERO ENCODERS
-                ser.write(bytes([10]))
             if command[0] == "q":
                 break
             time.sleep(0.01)
@@ -84,16 +88,16 @@ with serial.Serial('/dev/serial/by-id/usb-Teensyduino_USB_Serial_15749420-if00',
         ser.write(bytes([5]))
         raise e
     
-history = np.array(history)
-print(history.shape)
-fig, axs = plt.subplots(2, 3)
-axs[0, 0].plot(history[:, 0], history[:, 1], label='$x$')
-axs[1, 0].plot(history[:, 0], history[:, 2], label='$\\dot x$')
-axs[0, 1].plot(history[:, 0], history[:, 3], label='$\\theta_1$')
-axs[1, 1].plot(history[:, 0], history[:, 4], label='$\\dot \\theta_1$')
-axs[0, 2].plot(history[:, 0], history[:, 5], label='$\\theta_2$')
-axs[1, 2].plot(history[:, 0], history[:, 6], label='$\\dot \\theta_2$')
-for ax in axs.flatten(): ax.legend()
-plt.show()
+# history = np.array(history)
+# print(history.shape)
+# fig, axs = plt.subplots(2, 3)
+# axs[0, 0].plot(history[:, 0], history[:, 1], label='$x$')
+# axs[1, 0].plot(history[:, 0], history[:, 2], label='$\\dot x$')
+# axs[0, 1].plot(history[:, 0], history[:, 3], label='$\\theta_1$')
+# axs[1, 1].plot(history[:, 0], history[:, 4], label='$\\dot \\theta_1$')
+# axs[0, 2].plot(history[:, 0], history[:, 5], label='$\\theta_2$')
+# axs[1, 2].plot(history[:, 0], history[:, 6], label='$\\dot \\theta_2$')
+# for ax in axs.flatten(): ax.legend()
+# plt.show()
 
-np.save('data.npy', history)
+# np.save('data.npy', history)
